@@ -690,7 +690,57 @@ function compareNames(a, b) {
   if (last1 && last2 && last1.length > 2 && fuzzyWordMatch(last1, last2)) return "partial";
   const f1 = t1[0], f2 = t2[0];
   if (f1 && f2 && f1.length > 2 && fuzzyWordMatch(f1, f2)) return "partial";
+
+  // Handles Indian names where parts are merged (KRISHNA DEVI → KRISHNADEVI)
+  // or abbreviated as initials (PUTHIUVEETTIL UNNIKRISHNAN → P U)
+  const ciResult = tryCompoundInitialsMatch(t1, t2);
+  if (ciResult) return ciResult;
+
   return "mismatch";
+}
+
+function tryCompoundInitialsMatch(t1, t2) {
+  const used1 = new Array(t1.length).fill(false);
+  const used2 = new Array(t2.length).fill(false);
+
+  // Pass 1: direct fuzzy + initials (fuzzyWordMatch already handles single-char initials)
+  for (let i = 0; i < t1.length; i++) {
+    for (let j = 0; j < t2.length; j++) {
+      if (used2[j]) continue;
+      if (fuzzyWordMatch(t1[i], t2[j])) { used1[i] = used2[j] = true; break; }
+    }
+  }
+
+  // Pass 2: unmatched t2 token == concatenation of adjacent unmatched t1 tokens
+  for (let j = 0; j < t2.length; j++) {
+    if (used2[j] || t2[j].length <= 1) continue;
+    for (let i = 0; i < t1.length - 1; i++) {
+      if (used1[i] || used1[i + 1]) continue;
+      if (t2[j] === t1[i] + t1[i + 1]) { used1[i] = used1[i + 1] = used2[j] = true; break; }
+    }
+  }
+
+  // Pass 3: unmatched t1 token == concatenation of adjacent unmatched t2 tokens
+  for (let i = 0; i < t1.length; i++) {
+    if (used1[i] || t1[i].length <= 1) continue;
+    for (let j = 0; j < t2.length - 1; j++) {
+      if (used2[j] || used2[j + 1]) continue;
+      if (t1[i] === t2[j] + t2[j + 1]) { used1[i] = used2[j] = used2[j + 1] = true; break; }
+    }
+  }
+
+  const sig1Total   = t1.filter(w => w.length > 1).length;
+  const sig2Total   = t2.filter(w => w.length > 1).length;
+  const sig1Matched = t1.filter((w, i) => w.length > 1 && used1[i]).length;
+  const sig2Matched = t2.filter((w, i) => w.length > 1 && used2[i]).length;
+
+  const cov1 = sig1Total > 0 ? sig1Matched / sig1Total : 1;
+  const cov2 = sig2Total > 0 ? sig2Matched / sig2Total : 1;
+  const minCov = Math.min(cov1, cov2);
+
+  if (minCov >= 0.99) return "partial";
+  if (minCov >= 0.5)  return "partial";
+  return null;
 }
 
 function compareNamesDetailed(profileName, rawBankName) {
