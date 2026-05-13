@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NameCheck</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    :root {
+      --bg:      #0a0b12;
+      --card:    #13151f;
+      --card2:   #181a26;
+      --border:  #22263a;
+      --border2: #1e2133;
+      --text:    #eef0f6;
+      --muted:   #5a6380;
+      --muted2:  #3e4560;
+      --accent:  #3b82f6;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger:  #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      width: 310px;
+      padding: 14px;
+      font-size: 13px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .logo {
+      font-size: 13px; font-weight: 700;
+      display: flex; align-items: center; gap: 7px;
+      letter-spacing: .01em;
+    }
+    .shield { width: 19px; height: 19px; }
+
+    .badge {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 600;
+      padding: 3px 9px; border-radius: 20px; border: 1px solid;
+      letter-spacing: .02em;
+    }
+    .badge.active   { background: rgba(34,197,94,.1);  color: var(--success); border-color: rgba(34,197,94,.25); }
+    .badge.inactive { background: rgba(245,158,11,.1); color: var(--warning); border-color: rgba(245,158,11,.25); }
+
+    .toggle-pill {
+      font-size: 9px; font-weight: 700; letter-spacing: .05em;
+      padding: 3px 9px; border-radius: 20px; cursor: pointer;
+      transition: all .2s; border: 1px solid; font-family: inherit;
+    }
+    .toggle-pill.on  { background: rgba(34,197,94,.12); color: #4ade80; border-color: rgba(34,197,94,.28); }
+    .toggle-pill.off { background: rgba(239,68,68,.1);  color: #f87171; border-color: rgba(239,68,68,.28); }
+
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: .5; transform: scale(.9); }
+      50%      { opacity: 1;  transform: scale(1.15); }
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 11px 12px;
+      margin-bottom: 9px;
+    }
+
+    /* ── Profile row ── */
+    .profile-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-bottom: 9px; margin-bottom: 9px;
+      border-bottom: 1px solid var(--border2);
+    }
+    .profile-label {
+      color: var(--muted); font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .07em;
+    }
+    .profile-value {
+      font-weight: 700; font-size: 12px; color: var(--text);
+      max-width: 190px; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; text-align: right;
+    }
+
+    /* ── Stat grid (3 cols) ── */
+    .stat-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+    }
+    .stat-cell {
+      background: var(--card2); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 7px 8px;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+    }
+    .stat-cell-value  { font-size: 18px; font-weight: 700; line-height: 1; }
+    .stat-cell-label  { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .c-match   { color: var(--success); }
+    .c-partial { color: var(--warning); }
+    .c-mismatch{ color: var(--danger);  }
+
+    /* ── Partial detail panel ── */
+    .partial-panel {
+      background: rgba(245,158,11,.06);
+      border: 1px solid rgba(245,158,11,.18);
+      border-radius: 8px; padding: 7px 10px;
+      margin-top: 9px; display: none;
+    }
+    .partial-panel.visible { display: block; }
+    .partial-panel-title {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: #fbbf24; margin-bottom: 5px;
+    }
+    .fn-diff { display: flex; align-items: center; gap: 6px; }
+    .fn-chip { background: rgba(255,255,255,.07); color: rgba(255,255,255,.75); padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; }
+    .fn-sep  { color: var(--muted2); font-size: 13px; }
+
+    /* ── Result banner ── */
+    .result {
+      margin-top: 9px; padding: 9px 11px; border-radius: 8px;
+      background: rgba(255,255,255,.025); border: 1px solid var(--border);
+      display: flex; align-items: center; gap: 9px;
+      transition: background .25s, border-color .25s;
+    }
+    .result-icon  { font-size: 16px; flex-shrink: 0; }
+    .result-body  { flex: 1; min-width: 0; }
+    .result-label { font-size: 12px; font-weight: 700; }
+    .result-label.match    { color: var(--success); }
+    .result-label.partial  { color: var(--warning); }
+    .result-label.mismatch { color: var(--danger);  }
+    .result-label.none     { color: var(--muted);   }
+    .result-sub  { font-size: 10px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── Scan count row ── */
+    .scan-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0 0; }
+    .scan-label { color: var(--muted); font-size: 10px; }
+    .scan-value { font-weight: 600; font-size: 11px; }
+
+    /* ── Section divider ── */
+    .sec-divider { height: 1px; background: var(--border2); margin: 9px 0; }
+
+    /* ── Section title ── */
+    .sec-title {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--muted); margin-bottom: 8px;
+    }
+
+    /* ── PAN row ── */
+    .pan-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 0;
+    }
+    .pan-key   { color: var(--muted); font-size: 10px; flex-shrink: 0; width: 52px; }
+    .pan-val   { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--text); }
+
+    .pan-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 20px; border: 1px solid;
+    }
+    .pan-badge.match    { color: var(--success); background: rgba(34,197,94,.1);  border-color: rgba(34,197,94,.25); }
+    .pan-badge.partial  { color: var(--warning); background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.25); }
+    .pan-badge.mismatch { color: var(--danger);  background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.25); }
+    .pan-badge.none     { color: var(--muted);   background: transparent;         border-color: var(--border); }
+
+    .pan-partial-info {
+      font-size: 9px; color: var(--muted); margin-top: 3px; display: none;
+    }
+    .pan-partial-info.visible { display: block; }
+    .pan-highlight { color: #fbbf24; font-weight: 700; }
+
+    /* ── Account IDs list ── */
+    .acct-id-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 5px 0; gap: 4px;
+    }
+    .acct-id-item + .acct-id-item { border-top: 1px solid var(--border2); }
+    .acct-item-num  { font-size: 9px; color: var(--muted); font-weight: 600; width: 18px; flex-shrink: 0; }
+    .acct-item-id   { font-size: 13px; font-weight: 700; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
+    .acct-item-id.dim { color: var(--muted); font-size: 11px; font-weight: 400; letter-spacing: 0; }
+    .acct-item-badge        { font-size: 10px; font-weight: 700; flex-shrink: 0; width: 14px; text-align: center; }
+    .acct-item-badge.match   { color: var(--success); }
+    .acct-item-badge.partial { color: var(--warning); }
+    .acct-item-badge.miss    { color: var(--danger);  }
+
+    .copy-btn {
+      display: flex; align-items: center; gap: 4px;
+      background: rgba(59,130,246,.15); border: 1px solid rgba(59,130,246,.3);
+      color: #60a5fa; border-radius: 6px; padding: 4px 10px;
+      font-size: 10px; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: all .15s; flex-shrink: 0;
+    }
+    .copy-btn:hover:not(:disabled) { background: rgba(59,130,246,.28); }
+    .copy-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .copy-btn.copied {
+      background: rgba(34,197,94,.15); border-color: rgba(34,197,94,.3);
+      color: #4ade80;
+    }
+
+    /* ── Button ── */
+    .btn {
+      width: 100%; background: var(--accent); color: #fff;
+      border: none; border-radius: 8px; padding: 9px;
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      cursor: pointer; display: flex; align-items: center;
+      justify-content: center; gap: 6px;
+      transition: background .15s, transform .1s, opacity .15s;
+      letter-spacing: .01em;
+    }
+    .btn:hover:not(:disabled) { background: #2563eb; }
+    .btn:active:not(:disabled){ transform: scale(.98); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .spinner {
+      width: 12px; height: 12px;
+      border: 2px solid rgba(255,255,255,.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #content-container { opacity: 0; transition: opacity .25s; }
+    #content-container.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">
+      <svg class="shield" viewBox="0 0 20 20" fill="none">
+        <path d="M10 2L3 5v5c0 4.1 2.9 7.9 7 9 4.1-1.1 7-4.9 7-9V5l-7-3z"
+          fill="rgba(59,130,246,.15)" stroke="#3b82f6" stroke-width="1.4" stroke-linejoin="round"/>
+        <path d="M7.5 10l1.8 1.8 3.2-3.2" stroke="#3b82f6" stroke-width="1.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      NameCheck
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <div class="badge inactive" id="monitoring-status">
+        <div class="dot"></div>
+        <span id="status-text">Connecting</span>
+      </div>
+      <button class="toggle-pill on" id="enable-toggle" title="Toggle NameCheck on/off">ON</button>
+    </div>
+  </div>
+
+  <div id="content-container">
+
+    <!-- ── Card 1: Name Check ── -->
+    <div class="card">
+      <div class="profile-row">
+        <span class="profile-label">Profile</span>
+        <span class="profile-value" id="val-profile" title="">—</span>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-cell">
+          <span class="stat-cell-value c-match"    id="val-match">0</span>
+          <span class="stat-cell-label">Matched</span>
+        </div>
+        <div class="stat-cell">
+          <span class="stat-cell-value c-partial"  id="val-partial">0</span>
+          <span class="stat-cell-label">Partial</span>
+        </div>
+        <div class="stat-cell">
+          <span class="stat-cell-value c-mismatch" id="val-mismatch">0</span>
+          <span class="stat-cell-label">Mismatch</span>
+        </div>
+      </div>
+
+      <!-- First-name diff panel (partial only) -->
+      <div class="partial-panel" id="partial-panel">
+        <div class="partial-panel-title">First name differs</div>
+        <div class="fn-diff">
+          <span class="fn-chip" id="fn-profile">—</span>
+          <span class="fn-sep">≠</span>
+          <span class="fn-chip" id="fn-bank">—</span>
+        </div>
+      </div>
+
+      <!-- Result banner -->
+      <div class="result" id="result-box">
+        <div class="result-icon" id="result-icon">⏳</div>
+        <div class="result-body">
+          <div class="result-label none" id="result-text">Waiting for data</div>
+          <div class="result-sub"        id="result-sub"></div>
+        </div>
+      </div>
+
+      <div class="scan-row">
+        <span class="scan-label">Accounts scanned</span>
+        <span class="scan-value" id="val-count">0</span>
+      </div>
+    </div>
+
+    <!-- ── Card 2: PAN + Account ID ── -->
+    <div class="card">
+
+      <!-- PAN section -->
+      <div class="sec-title">PAN Verification</div>
+
+      <div class="pan-row">
+        <span class="pan-key">Profile</span>
+        <span class="pan-val" id="val-profile-pan">—</span>
+      </div>
+      <div class="pan-row" style="margin-bottom:8px;">
+        <span class="pan-key">Bank</span>
+        <span class="pan-val" id="val-bank-pan">—</span>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="pan-badge none" id="pan-badge">— Not available</span>
+      </div>
+      <div class="pan-partial-info" id="pan-partial-info">
+        Last <span id="pan-match-len">?</span> chars match:
+        <span class="pan-highlight" id="pan-match-part">—</span>
+      </div>
+
+      <!-- Divider -->
+      <div class="sec-divider"></div>
+
+      <!-- Account IDs list (populated by JS) -->
+      <div>
+        <div class="sec-title" style="margin-bottom:5px;">Bank Account IDs</div>
+        <div id="acct-ids-list">
+          <span class="acct-item-id dim">—</span>
+        </div>
+      </div>
+
+    </div>
+
+    <button class="btn" id="scanBtn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+        <path d="M21 3v5h-5"/>
+      </svg>
+      Force Scan
+    </button>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
