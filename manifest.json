@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Name Checker",
-  "version": "1.0",
+  "version": "1.2",
   "permissions": ["storage", "activeTab", "scripting"],
   "action": {
     "default_popup": "popup.html",
@@ -18,7 +18,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["https://*/*", "http://*/*"],
       "js": ["content.js"]
     }
   ]
