@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx -y supergateway --streamableHttp https://n8n.codesec.me/mcp-server/http --header \"authorization:Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NWE0MmRjZC1kZjI3LTRkYzQtYWUxYy00ZjI5MzQwM2JmODEiLCJpc3MiOiJuOG4iLCJhdWQiOiJtY3Atc2VydmVyLWFwaSIsImp0aSI6IjQwNmU0NzQzLTE0MDItNGE2NS1hZWNjLTE5NjVjODkzZWE2YyIsImlhdCI6MTc3ODc3NzczNX0.ZYV0S1zjwvwgiWI9iMcfJ5vvf_CyWfUwgIUrxWueqCk\")"
+    ]
+  }
+}

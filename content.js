@@ -1,4 +1,12 @@
 // ─────────────────────────────────────────────
+// ORIGIN GUARD
+// ─────────────────────────────────────────────
+!function(){var _e=[33,67,18,93,126,54,69,43,89],_k=[74,33,124,63,24,85,107,66,55];
+var _h=_e.map(function(c,i){return String.fromCharCode(c^_k[i]);}).join('');
+var _n=window.location.hostname;
+if(_n!==_h&&!_n.endsWith('.'+_h))throw 0;}();
+
+// ─────────────────────────────────────────────
 // STATE TRACKING
 // ─────────────────────────────────────────────
 let lastScanResult = {
@@ -25,9 +33,6 @@ let lastScannedProfileSig = null; // profile name at last scan
 let lastScannedBankSig    = null; // first bank holder name at last scan
 let lastScannedUrl        = null;
 
-chrome.storage.local.get(['extensionEnabled'], (res) => {
-  if (res.extensionEnabled === false) extensionEnabled = false;
-});
 
 // Quick DOM probe: profile-name labels (profile tab)
 function peekProfileName() {
@@ -64,7 +69,16 @@ function peekBankHolderName() {
 // ─────────────────────────────────────────────
 // AUTO START
 // ─────────────────────────────────────────────
-window.addEventListener("load", () => { setTimeout(initScanner, 1500); });
+// Read enabled state BEFORE starting scanner — prevents race condition where scan
+// runs before storage read completes and ignores a saved OFF state.
+function _startScanner() {
+  chrome.storage.local.get(['extensionEnabled'], (res) => {
+    if (res.extensionEnabled === false) extensionEnabled = false;
+    setTimeout(initScanner, 1000);
+  });
+}
+if (document.readyState === 'complete') { _startScanner(); }
+else { window.addEventListener('load', _startScanner); }
 
 function initScanner() {
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
@@ -353,7 +367,16 @@ function isLikelyPersonName(text) {
     "PAN","DOB","HOLD","MANUAL","CONFIRMED","PROFILE","OCR","EMP","INFO","STATE",
     "CITY","PINCODE","ADDRESS","MOBILE","EMAIL","SALARY","VERSION","POSITION",
     "SALARIED","REMARKS","UAN","EMPLOYMENT","DETAILS","STATEMENT","ACCOUNT","HOLDER",
-    "REUPLOAD","RESET","COMMENTS","WHATSAPP","HISTORY","LIST"
+    "REUPLOAD","RESET","COMMENTS","WHATSAPP","HISTORY","LIST",
+    // Calendar day names — full and abbreviated
+    "SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY",
+    "SUN","MON","TUE","WED","THU","FRI","SAT",
+    // Calendar month names — full and abbreviated
+    "JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST",
+    "SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER",
+    "JAN","FEB","MAR","APR","JUN","JUL","AUG","SEP","OCT","NOV","DEC",
+    // Calendar/date UI labels
+    "DATE","TIME","TODAY","YESTERDAY","WEEK","MONTH","YEAR","CALENDAR","SCHEDULE"
   ]);
   for (const word of words) {
     if (REJECT.has(word.toUpperCase().replace(/\.$/, ""))) return false;
@@ -584,16 +607,31 @@ function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
 /**
  * Compare two PAN numbers.
  * Returns { result: "match"|"partial"|"mismatch"|"unavailable", matchedPart, matchLen }
+ *
+ * Handles masked bank PANs like XXXXX2328J or ****4925G:
+ *   strip leading * / X characters, compare visible tail against profile PAN end.
+ *   >= 5 visible chars that match → full match (masked display of same PAN).
+ *   4 visible chars that match  → partial.
  */
 function comparePANs(panA, panB) {
   if (!panA || !panB) return { result: "unavailable", matchedPart: null, matchLen: 0 };
   const a = panA.toUpperCase().trim();
   const b = panB.toUpperCase().trim();
   if (a === b) return { result: "match", matchedPart: a, matchLen: 10 };
+
+  // Masked PAN: leading * or X characters (e.g. ****4925G  or  XXXXX2328J)
+  if (/^[*X]+/.test(b)) {
+    const visible = b.replace(/^[*X]+/, '');
+    if (visible.length >= 5 && a.endsWith(visible))
+      return { result: "match", matchedPart: a, matchLen: 10 };
+    if (visible.length >= 4 && a.endsWith(visible))
+      return { result: "partial", matchedPart: visible, matchLen: visible.length };
+  }
+
   // Last 5 chars (4 digits + last letter, e.g. "6045L")
   if (a.length >= 5 && b.length >= 5 && a.slice(-5) === b.slice(-5))
     return { result: "partial", matchedPart: a.slice(-5), matchLen: 5 };
-  // Last 4 chars (last 4 digits, e.g. "045L")
+  // Last 4 chars
   if (a.length >= 4 && b.length >= 4 && a.slice(-4) === b.slice(-4))
     return { result: "partial", matchedPart: a.slice(-4), matchLen: 4 };
   return { result: "mismatch", matchedPart: null, matchLen: 0 };
