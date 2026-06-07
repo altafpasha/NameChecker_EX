@@ -139,18 +139,18 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     } else if (data.mismatchFound) {
       resultIcon.innerText = "❌";
-      resultText.innerText = "Mismatch Detected";
+      resultText.innerText = "Manual Check Required";
       resultText.className = "result-label mismatch";
-      resultSub.innerText  = `${data.mismatchCount} account${data.mismatchCount !== 1 ? "s" : ""} don't match`;
+      resultSub.innerText  = `${data.mismatchCount} account${data.mismatchCount !== 1 ? "s" : ""} — name mismatch detected`;
       resultBox.style.borderColor = "rgba(239,68,68,.3)";
       resultBox.style.background  = "rgba(239,68,68,.05)";
       partialPanel.classList.remove("visible");
 
     } else if (data.partialCount > 0) {
       resultIcon.innerText = "⚠️";
-      resultText.innerText = "Partial Match Found";
+      resultText.innerText = "Partial Match — Verify Manually";
       resultText.className = "result-label partial";
-      resultSub.innerText  = `${data.partialCount} account${data.partialCount !== 1 ? "s" : ""} partially match`;
+      resultSub.innerText  = `${data.partialCount} account${data.partialCount !== 1 ? "s" : ""} partially matched`;
       resultBox.style.borderColor = "rgba(245,158,11,.3)";
       resultBox.style.background  = "rgba(245,158,11,.05)";
       const fp = (data.details || []).find(d => d.result === "partial" && d.firstNameDiffers);

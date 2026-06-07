@@ -248,6 +248,7 @@ function runScan(_force = false) {
         pan: st.pan, accountID: st.accountID,
         nameResult, nameDetail, panResult,
         overallResult,
+        needsManualCheck: nameDetail?.needsManualCheck || overallResult === 'mismatch',
         copyEnabled: nameOk && panOk && !!st.accountID
       });
     });
@@ -660,17 +661,62 @@ function levenshtein(a, b) {
   return dp[m][n];
 }
 
+function jaroSimilarity(s1, s2) {
+  if (s1 === s2) return 1;
+  const l1 = s1.length, l2 = s2.length;
+  if (!l1 || !l2) return 0;
+  const dist = Math.max(Math.floor(Math.max(l1, l2) / 2) - 1, 0);
+  const m1 = new Array(l1).fill(false), m2 = new Array(l2).fill(false);
+  let hits = 0;
+  for (let i = 0; i < l1; i++) {
+    for (let j = Math.max(0, i - dist); j < Math.min(i + dist + 1, l2); j++) {
+      if (m2[j] || s1[i] !== s2[j]) continue;
+      m1[i] = m2[j] = true; hits++; break;
+    }
+  }
+  if (!hits) return 0;
+  let t = 0, k = 0;
+  for (let i = 0; i < l1; i++) {
+    if (!m1[i]) continue;
+    while (!m2[k]) k++;
+    if (s1[i] !== s2[k]) t++;
+    k++;
+  }
+  return (hits / l1 + hits / l2 + (hits - t / 2) / hits) / 3;
+}
+
+function jaroWinkler(s1, s2) {
+  const jaro = jaroSimilarity(s1, s2);
+  let p = 0;
+  while (p < Math.min(4, s1.length, s2.length) && s1[p] === s2[p]) p++;
+  return jaro + p * 0.1 * (1 - jaro);
+}
+
+function bigramSim(a, b) {
+  if (!a || !b || a.length < 2 || b.length < 2) return 0;
+  const bg = s => { const set = new Set(); for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2)); return set; };
+  const ga = bg(a), gb = bg(b);
+  let shared = 0;
+  for (const g of ga) { if (gb.has(g)) shared++; }
+  return (2 * shared) / (ga.size + gb.size || 1);
+}
+
 function fuzzyWordMatch(w1, w2) {
   if (w1 === w2) return true;
   if (!w1 || !w2) return false;
   if (w1.length === 1 && w2.startsWith(w1)) return true;
   if (w2.length === 1 && w1.startsWith(w2)) return true;
-  const ph = w => w.replace(/ee/g,"i").replace(/aa/g,"a").replace(/oo/g,"u")
-    .replace(/ph/g,"f").replace(/bh/g,"b").replace(/dh/g,"d")
-    .replace(/gh/g,"g").replace(/kh/g,"k").replace(/th/g,"t")
-    .replace(/sh/g,"s").replace(/nh/g,"n").replace(/v/g,"w");
+  const ph = w => w
+    .replace(/ee|ii/g, 'i').replace(/aa/g, 'a').replace(/oo|ou/g, 'u')
+    .replace(/ph/g, 'f').replace(/bh/g, 'b').replace(/dh/g, 'd')
+    .replace(/gh/g, 'g').replace(/kh/g, 'k').replace(/th/g, 't')
+    .replace(/sh/g, 's').replace(/nh/g, 'n').replace(/v/g, 'w')
+    .replace(/ai|ay/g, 'a').replace(/ch/g, 'c').replace(/ck/g, 'k')
+    .replace(/(.)\1+/g, '$1');
   if (ph(w1) === ph(w2)) return true;
   const minLen = Math.min(w1.length, w2.length);
+  if (minLen >= 4 && jaroWinkler(w1, w2) >= 0.92) return true;
+  if (minLen >= 4 && bigramSim(w1, w2) >= 0.75) return true;
   const maxEdits = minLen >= 8 ? 2 : minLen >= 5 ? 1 : 0;
   if (maxEdits > 0 && levenshtein(w1, w2) <= maxEdits) return true;
   return false;
@@ -737,6 +783,25 @@ function compareNames(a, b) {
   return "mismatch";
 }
 
+function computeNameConfidence(profileName, bankName) {
+  const n1 = normalize(extractPersonName(profileName));
+  const n2 = normalize(extractPersonName(bankName));
+  if (!n1 || !n2) return 0;
+  const jwFull = jaroWinkler(n1.replace(/\s+/g, ''), n2.replace(/\s+/g, ''));
+  const bgFull = bigramSim(n1, n2);
+  const t1 = significantTokens(tokenize(profileName));
+  const t2 = significantTokens(tokenize(bankName));
+  const used = new Set();
+  let tokenMatches = 0;
+  for (const w of t1) {
+    for (let i = 0; i < t2.length; i++) {
+      if (!used.has(i) && fuzzyWordMatch(w, t2[i])) { tokenMatches++; used.add(i); break; }
+    }
+  }
+  const tokenScore = tokenMatches / Math.max(t1.length, t2.length, 1);
+  return Math.min(100, Math.round((jwFull * 0.3 + bgFull * 0.2 + tokenScore * 0.5) * 100));
+}
+
 function tryCompoundInitialsMatch(t1, t2) {
   const used1 = new Array(t1.length).fill(false);
   const used2 = new Array(t2.length).fill(false);
@@ -784,6 +849,7 @@ function tryCompoundInitialsMatch(t1, t2) {
 function compareNamesDetailed(profileName, rawBankName) {
   const cleanBankName = extractPersonName(rawBankName);
   const result = compareNames(profileName, rawBankName);
+  const confidence = computeNameConfidence(profileName, rawBankName);
   const tProfile = tokenize(extractPersonName(profileName));
   const tBank    = tokenize(cleanBankName);
   const firstNameProfile = tProfile[0] || null;
@@ -792,7 +858,8 @@ function compareNamesDetailed(profileName, rawBankName) {
     result === "partial" && firstNameProfile && firstNameBank &&
     !fuzzyWordMatch(firstNameProfile, firstNameBank);
   const tokenResults = tProfile.map(pt => ({ token: pt.toUpperCase(), matched: tBank.some(bt => fuzzyWordMatch(pt, bt)) }));
-  return { result, rawBankName, cleanBankName: cleanBankName.toUpperCase(),
+  const needsManualCheck = result === 'mismatch' || (result === 'partial' && confidence < 70);
+  return { result, confidence, needsManualCheck, rawBankName, cleanBankName: cleanBankName.toUpperCase(),
            firstNameProfile: firstNameProfile?.toUpperCase() || null,
            firstNameBank: firstNameBank?.toUpperCase() || null,
            firstNameDiffers, tokenResults };
@@ -931,6 +998,17 @@ function showPersistentWidget(result) {
 
   const copySVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 
+  const globalWarning = mismatchFound
+    ? `<div style="background:rgba(239,68,68,.1);border-bottom:1px solid rgba(239,68,68,.22);
+        padding:6px 10px;display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;font-weight:800;color:#ef4444;">⚠</span>
+        <div>
+          <span style="font-size:9px;font-weight:700;color:#ef4444;letter-spacing:.04em;">MANUAL CHECK REQUIRED</span>
+          <span style="font-size:8px;color:rgba(239,68,68,.65);margin-left:5px;">name mismatch detected</span>
+        </div>
+      </div>`
+    : '';
+
   // ── Build per-statement rows ─────────────────
   let stmtsHTML = '';
 
@@ -975,6 +1053,17 @@ function showPersistentWidget(result) {
         ? `<span style="font-size:8px;color:rgba(255,255,255,.28);display:block;margin-top:2px;">${st.nameDetail.firstNameProfile} ≠ ${st.nameDetail.firstNameBank}</span>`
         : '';
 
+      const manualCheckHTML = st.needsManualCheck
+        ? `<div style="display:flex;align-items:center;gap:4px;margin-top:5px;padding:3px 6px;border-radius:4px;
+            background:rgba(${st.overallResult === 'mismatch' ? '239,68,68' : '245,158,11'},.09);
+            border:1px solid rgba(${st.overallResult === 'mismatch' ? '239,68,68' : '245,158,11'},.22);">
+            <span style="font-size:8px;font-weight:700;letter-spacing:.04em;
+              color:${st.overallResult === 'mismatch' ? '#ef4444' : '#f59e0b'};">
+              ⚠ ${st.overallResult === 'mismatch' ? 'MANUAL CHECK REQUIRED' : 'VERIFY MANUALLY'}
+            </span>
+          </div>`
+        : '';
+
       return `
         <div style="padding:8px 10px;${!isLast ? 'border-bottom:1px solid rgba(255,255,255,.05);' : ''}
           background:rgba(${stRGB},.04);">
@@ -992,15 +1081,16 @@ function showPersistentWidget(result) {
           <!-- Name + PAN badges row -->
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:3px;margin-bottom:6px;">
             <span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;
-              background:rgba(${nRGB},.12);color:${nColor};">NAME ${nSign}</span>
+              background:rgba(${nRGB},.12);color:${nColor};">NAME ${nSign}${st.nameDetail?.confidence != null && st.nameResult !== 'unavailable' ? ' ' + st.nameDetail.confidence + '%' : ''}</span>
             <span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;
               background:rgba(${pRGB},.1);color:${pColor};">PAN ${pSign}</span>
             ${st.pan ? `<span style="font-size:8px;color:rgba(255,255,255,.25);letter-spacing:.03em;">${st.pan}</span>` : ''}
           </div>
           ${fnDiff}
+          ${manualCheckHTML}
 
           <!-- Account ID + copy row -->
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:${fnDiff ? '4px' : '0'};">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:${(fnDiff || manualCheckHTML) ? '4px' : '0'};">
             <span style="font-size:13px;font-weight:700;letter-spacing:.05em;
               font-variant-numeric:tabular-nums;
               color:rgba(255,255,255,${canCopy ? '.88' : '.3'});">${st.accountID || '—'}</span>
@@ -1093,6 +1183,7 @@ function showPersistentWidget(result) {
           transition:background .15s,color .15s;">✕</button>
       </div>
     </div>
+    ${globalWarning}
     <!-- Statements (scrollable if many) -->
     <div style="max-height:320px;overflow-y:auto;overflow-x:hidden;">
       ${stmtsHTML}

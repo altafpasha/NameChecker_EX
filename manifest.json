@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Name Checker",
-  "version": "1.3",
+  "version": "1.5",
   "permissions": ["storage", "activeTab", "scripting"],
   "action": {
     "default_popup": "popup.html",
