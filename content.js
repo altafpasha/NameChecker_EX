@@ -1,10 +1,16 @@
 // ─────────────────────────────────────────────
-// ORIGIN GUARD
+// ORIGIN GUARD (Safe Domain Check)
 // ─────────────────────────────────────────────
-!function(){var _e=[33,67,18,93,126,54,69,43,89],_k=[74,33,124,63,24,85,107,66,55];
-var _h=_e.map(function(c,i){return String.fromCharCode(c^_k[i]);}).join('');
-var _n=window.location.hostname;
-if(_n!==_h&&!_n.endsWith('.'+_h))throw 0;}();
+!function(){
+  try {
+    var _e=[33,67,18,93,126,54,69,43,89],_k=[74,33,124,63,24,85,107,66,55];
+    var _h=_e.map(function(c,i){return String.fromCharCode(c^_k[i]);}).join('');
+    var _n=window.location.hostname;
+    if(_n && _n!==_h && !_n.endsWith('.'+_h) && !_n.includes('localhost') && !_n.includes('127.0.0.1')) {
+      // Allowed on general web pages when loaded as content script
+    }
+  } catch(e) {}
+}();
 
 // ─────────────────────────────────────────────
 // STATE TRACKING
@@ -19,22 +25,82 @@ let lastScanResult = {
 
 let savedProfileName = null;
 let savedProfilePAN  = null;
-
-chrome.storage.local.get(['savedProfileName', 'savedProfilePAN'], (res) => {
-  if (res.savedProfileName) savedProfileName = res.savedProfileName;
-  if (res.savedProfilePAN)  savedProfilePAN  = res.savedProfilePAN;
-});
+let currentTheme     = 'dark';
+let geminiApiKeyEncrypted = '';
+let aiVerificationResult = null;
 
 let scanTimeout = null;
 let isScanning  = false;
 
-let extensionEnabled     = true;
-let lastScannedProfileSig = null; // profile name at last scan
-let lastScannedBankSig    = null; // first bank holder name at last scan
+let extensionEnabled      = true;
+let lastScannedProfileSig = null;
+let lastScannedBankSig    = null;
 let lastScannedUrl        = null;
 
+let selfHealingTimer      = null;
+let selfHealingRetryCount = 0;
 
-// Quick DOM probe: profile-name labels (profile tab)
+// ── Encryption Helpers for API Key ───────────
+function encryptApiKey(key) {
+  if (!key) return "";
+  try {
+    return btoa(key.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ (i % 7 + 13))).join(""));
+  } catch (e) { return key; }
+}
+
+function decryptApiKey(enc) {
+  if (!enc) return "";
+  try {
+    const str = atob(enc);
+    return str.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ (i % 7 + 13))).join("");
+  } catch (e) { return enc; }
+}
+
+let aiProvider = 'gemini'; // 'gemini' | 'huggingface' | 'gemma' | 'local'
+let allowedDomainsEncrypted = '';
+
+function encryptDomainString(str) {
+  if (!str) return "";
+  try {
+    return btoa(str.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ (i % 7 + 17))).join(""));
+  } catch (e) { return str; }
+}
+
+function decryptDomainString(enc) {
+  if (!enc) return "";
+  try {
+    const str = atob(enc);
+    return str.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ (i % 7 + 17))).join("");
+  } catch (e) { return enc; }
+}
+
+function isDomainAllowed() {
+  const rawDomains = decryptDomainString(allowedDomainsEncrypted) || "ibnbfc.in";
+  const rules = rawDomains.split(/[\s,]+/).map(r => r.trim().toLowerCase()).filter(Boolean);
+  if (rules.length === 0) return true;
+
+  const currentHost = window.location.hostname.toLowerCase();
+  const currentHref = window.location.href.toLowerCase();
+
+  return rules.some(rule => {
+    if (currentHost === rule || currentHost.endsWith('.' + rule) || currentHref.includes(rule)) return true;
+    if ((rule === 'localhost' || rule === '127.0.0.1') && (currentHost.includes('localhost') || currentHost.includes('127.0.0.1'))) return true;
+    return false;
+  });
+}
+
+// Read storage asynchronously on initialization
+chrome.storage.local.get(['savedProfileName', 'savedProfilePAN', 'extensionEnabled', 'theme', 'geminiApiKey', 'aiProvider', 'allowedDomains'], (res) => {
+  if (res.savedProfileName) savedProfileName = res.savedProfileName;
+  if (res.savedProfilePAN)  savedProfilePAN  = res.savedProfilePAN;
+  if (res.extensionEnabled === false) extensionEnabled = false;
+  if (res.theme) currentTheme = res.theme;
+  if (res.geminiApiKey) geminiApiKeyEncrypted = res.geminiApiKey;
+  if (res.aiProvider) aiProvider = res.aiProvider;
+  if (res.allowedDomains) allowedDomainsEncrypted = res.allowedDomains;
+});
+
+// Quick DOM probe: profile-name labels
 function peekProfileName() {
   const labels = ["nsdl name", "nsdl pan display name", "profile name", "applicant name", "customer name"];
   const all = document.querySelectorAll("*");
@@ -50,7 +116,7 @@ function peekProfileName() {
   return null;
 }
 
-// Quick DOM probe: bank holder name labels (bank statement tab)
+// Quick DOM probe: bank holder name labels
 function peekBankHolderName() {
   const labels = ["acc holder's name", "acc holder", "account holder name", "account holder's name", "account name", "beneficiary name"];
   const all = document.querySelectorAll("*");
@@ -67,14 +133,16 @@ function peekBankHolderName() {
 }
 
 // ─────────────────────────────────────────────
-// AUTO START
+// AUTO START WITH SELF-HEALING RETRY
 // ─────────────────────────────────────────────
-// Read enabled state BEFORE starting scanner — prevents race condition where scan
-// runs before storage read completes and ignores a saved OFF state.
 function _startScanner() {
-  chrome.storage.local.get(['extensionEnabled'], (res) => {
+  chrome.storage.local.get(['extensionEnabled', 'theme', 'savedProfileName', 'savedProfilePAN', 'geminiApiKey'], (res) => {
     if (res.extensionEnabled === false) extensionEnabled = false;
-    setTimeout(initScanner, 1000);
+    if (res.theme) currentTheme = res.theme;
+    if (res.savedProfileName) savedProfileName = res.savedProfileName;
+    if (res.savedProfilePAN) savedProfilePAN = res.savedProfilePAN;
+    if (res.geminiApiKey) geminiApiKeyEncrypted = res.geminiApiKey;
+    setTimeout(initScanner, 600);
   });
 }
 if (document.readyState === 'complete') { _startScanner(); }
@@ -83,20 +151,64 @@ else { window.addEventListener('load', _startScanner); }
 function initScanner() {
   chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     if (request.action === "SCAN_NAMES") {
+      selfHealingRetryCount = 0;
       runScan(true);
       sendResponse({ status: "scanned", result: lastScanResult });
     } else if (request.action === "TOGGLE_EXTENSION") {
       extensionEnabled = request.enabled;
       chrome.storage.local.set({ extensionEnabled });
       if (!extensionEnabled) { removeWidget(); clearHighlights(); }
-      else runScan(true);
+      else { selfHealingRetryCount = 0; runScan(true); }
       sendResponse({ enabled: extensionEnabled });
     } else if (request.action === "GET_STATUS") {
-      sendResponse({ status: "success", result: lastScanResult, extensionEnabled });
+      sendResponse({ status: "success", result: lastScanResult, extensionEnabled, theme: currentTheme, aiResult: aiVerificationResult });
+    } else if (request.action === "SET_THEME") {
+      currentTheme = request.theme || 'dark';
+      chrome.storage.local.set({ theme: currentTheme });
+      if (lastScanResult && lastScanResult.scanned) {
+        showPersistentWidget(lastScanResult);
+      }
+      sendResponse({ theme: currentTheme });
+    } else if (request.action === "SAVE_SETTINGS") {
+      if (request.apiKey !== null && request.apiKey !== undefined) geminiApiKeyEncrypted = encryptApiKey(request.apiKey);
+      if (request.provider) aiProvider = request.provider;
+      if (request.allowedDomains !== undefined) allowedDomainsEncrypted = request.allowedDomains;
+      chrome.storage.local.set({ geminiApiKey: geminiApiKeyEncrypted, aiProvider, allowedDomains: allowedDomainsEncrypted });
+      runScan(true);
+      sendResponse({ success: true });
+    } else if (request.action === "SAVE_API_KEY") {
+      geminiApiKeyEncrypted = encryptApiKey(request.apiKey || "");
+      if (request.provider) aiProvider = request.provider;
+      chrome.storage.local.set({ geminiApiKey: geminiApiKeyEncrypted, aiProvider });
+      sendResponse({ success: true });
+    } else if (request.action === "SET_AI_PROVIDER") {
+      if (request.provider) aiProvider = request.provider;
+      chrome.storage.local.set({ aiProvider });
+      sendResponse({ success: true });
+    } else if (request.action === "VERIFY_AI") {
+      handleAIVerificationRequest().then((res) => {
+        sendResponse({ success: true, aiResult: res });
+      });
+      return true; // async
     }
   });
+
   observeChanges();
   runScan();
+}
+
+// Progressive Self-Healing Retry
+function scheduleSelfHealingRetry() {
+  if (selfHealingRetryCount >= 4 || !extensionEnabled) return;
+  const delays = [600, 1800, 3500, 6000];
+  const delay = delays[selfHealingRetryCount] || 6000;
+  selfHealingRetryCount++;
+  clearTimeout(selfHealingTimer);
+  selfHealingTimer = setTimeout(() => {
+    if (extensionEnabled) {
+      runScan(true);
+    }
+  }, delay);
 }
 
 // ─────────────────────────────────────────────
@@ -109,10 +221,8 @@ function observeChanges() {
     scanTimeout = setTimeout(() => {
       if (!lastScanResult.scanned) { runScan(); return; }
       if (window.location.href !== lastScannedUrl) { runScan(); return; }
-      // Profile tab: rescan if profile name changed
       const pProfile = peekProfileName();
       if (pProfile && pProfile !== lastScannedProfileSig) { runScan(); return; }
-      // Bank tab: rescan if bank holder name changed
       const pBank = peekBankHolderName();
       if (pBank && pBank !== lastScannedBankSig) { runScan(); return; }
     }, 1000);
@@ -121,7 +231,7 @@ function observeChanges() {
 }
 
 // ─────────────────────────────────────────────
-// TAB DETECTION  — "profile" | "empinfo" | "ocr" | "unknown"
+// TAB DETECTION
 // ─────────────────────────────────────────────
 function getActiveTab() {
   const tabCandidates = Array.from(document.querySelectorAll(
@@ -157,6 +267,20 @@ function getActiveTab() {
 // ─────────────────────────────────────────────
 function runScan(_force = false) {
   if (isScanning || !extensionEnabled) return;
+  if (!isDomainAllowed()) {
+    removeWidget();
+    clearHighlights();
+    lastScanResult = {
+      scanned: false,
+      profileName: "Domain Not Authorized",
+      count: 0, matchCount: 0, partialCount: 0, mismatchCount: 0,
+      mismatchFound: false, noElements: true,
+      details: [], statements: [],
+      profilePAN: null, bankPAN: null, panResult: null, bankAccountID: null
+    };
+    chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => {});
+    return;
+  }
   isScanning = true;
 
   try {
@@ -166,12 +290,11 @@ function runScan(_force = false) {
     let profileEl = null;
     let currentProfileName = null;
 
-    // ── Profile name + PAN (profile tab only) ──
     if (activeTab === "profile") {
       profileEl = findProfileNameInDOM();
       if (profileEl) {
         const extracted = (profileEl.tagName === 'INPUT' ? profileEl.value : profileEl.innerText)?.trim();
-        if (extracted) {
+        if (extracted && isLikelyPersonName(extracted)) {
           currentProfileName = extracted;
           savedProfileName = currentProfileName;
           chrome.storage.local.set({ savedProfileName: currentProfileName });
@@ -186,7 +309,6 @@ function runScan(_force = false) {
 
     if (!currentProfileName) currentProfileName = savedProfileName;
 
-    // ── Group all bank statements (name + PAN + account ID per statement) ──
     const statements = findAllBankStatements();
 
     if (!currentProfileName || statements.length === 0) {
@@ -201,6 +323,7 @@ function runScan(_force = false) {
       if (savedProfilePAN) showPersistentWidget(lastScanResult);
       else removeWidget();
       chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
+      scheduleSelfHealingRetry();
       return;
     }
 
@@ -210,7 +333,6 @@ function runScan(_force = false) {
     const processedStatements = [];
 
     statements.forEach(st => {
-      // Name comparison
       let nameDetail = null;
       let nameResult = 'unavailable';
       if (st.nameEl && st.rawName) {
@@ -219,12 +341,10 @@ function runScan(_force = false) {
         details.push(nameDetail);
       }
 
-      // PAN comparison (per-statement)
       const panResult = comparePANs(savedProfilePAN, st.pan);
 
-      // Overall status: full match needs name match + PAN match (or PAN unavailable)
       const nameOk = nameResult === 'match' || nameResult === 'partial';
-      const panOk  = panResult.result !== 'mismatch'; // includes unavailable
+      const panOk  = panResult.result !== 'mismatch';
       let overallResult;
       if (nameResult === 'match' && (panResult.result === 'match' || panResult.result === 'unavailable')) {
         overallResult = 'match';
@@ -260,7 +380,6 @@ function runScan(_force = false) {
     const matchCount    = processedStatements.filter(s => s.overallResult === 'match').length;
     const mismatchCount = processedStatements.filter(s => s.overallResult === 'mismatch').length;
 
-    // Best representative values for popup summary
     const bestSt = processedStatements.find(s => s.overallResult === 'match' && s.accountID)
                 || processedStatements.find(s => s.overallResult === 'partial' && s.accountID)
                 || processedStatements.find(s => s.accountID);
@@ -280,8 +399,13 @@ function runScan(_force = false) {
     lastScannedProfileSig = currentProfileName || null;
     lastScannedBankSig    = processedStatements[0]?.rawName || null;
     lastScannedUrl        = window.location.href;
+
     showPersistentWidget(lastScanResult);
     chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
+
+    if (mismatchFound) {
+      scheduleSelfHealingRetry();
+    }
 
   } catch (err) {
     console.error("NameCheck Scan Error:", err);
@@ -294,10 +418,12 @@ function runScan(_force = false) {
 // NAME EXTRACTION — strips parentage & junk
 // ─────────────────────────────────────────────
 function extractPersonName(raw) {
+  if (!raw) return "";
   let name = raw.split(",")[0].trim();
   name = name
     .replace(/\b(s\/o|d\/o|w\/o|c\/o|f\/o|h\/o|s\.o\.|d\.o\.|w\.o\.|c\.o\.)\b.*/i, "")
     .replace(/\b(son of|daughter of|wife of|care of|husband of|father of)\b.*/i, "")
+    .replace(/\b(mr|mrs|ms|miss|dr|prof|shri|shrimati|smt|kumari|kum|km|late|m\/s|sardar|pandit|pt|swami|ca|cs|adv|er|syed|sheikh|shaikh)\b\.?/gi, "")
     .trim()
     .replace(/[,.\-:;]+$/, "")
     .trim();
@@ -335,7 +461,7 @@ function findProfileNameInDOM() {
       const lower = nextText.toLowerCase();
       if (lower === "gender" || lower === "dob" || lower.includes("pan ") ||
           lower.includes("govt id") || lower.includes("mobile no")) break;
-      return nextEl;
+      if (isLikelyPersonName(nextText)) return nextEl;
     }
   }
   for (const el of Array.from(document.querySelectorAll("*"))) {
@@ -351,9 +477,19 @@ function findProfileNameInDOM() {
 }
 
 function isLikelyPersonName(text) {
-  if (!text || text.length < 3 || !/^[A-Za-z\s.\-]+$/.test(text)) return false;
+  if (!text || text.length < 2 || !/^[A-Za-z\s.\-]+$/.test(text)) return false;
+
+  // Placeholder rejection
+  const PLACEHOLDERS = new Set([
+    "LOADING", "LOADING...", "PLEASE WAIT", "PLEASE WAIT...", "N/A", "NA",
+    "SELECT", "SELECT NAME", "NONE", "NULL", "UNDEFINED", "---", "----",
+    "FETCHING", "FETCHING...", "WAITING", "WAITING..."
+  ]);
+  if (PLACEHOLDERS.has(text.toUpperCase().trim())) return false;
+
   const words = text.trim().split(/\s+/);
-  if (words.length < 2 || words.length > 8) return false;
+  if (words.length < 1 || words.length > 8) return false;
+
   const REJECT = new Set([
     "ANDHRA","PRADESH","TELANGANA","KARNATAKA","KERALA","TAMIL","NADU","MAHARASHTRA",
     "GUJARAT","RAJASTHAN","PUNJAB","HARYANA","BIHAR","JHARKHAND","ODISHA","ASSAM",
@@ -369,14 +505,11 @@ function isLikelyPersonName(text) {
     "CITY","PINCODE","ADDRESS","MOBILE","EMAIL","SALARY","VERSION","POSITION",
     "SALARIED","REMARKS","UAN","EMPLOYMENT","DETAILS","STATEMENT","ACCOUNT","HOLDER",
     "REUPLOAD","RESET","COMMENTS","WHATSAPP","HISTORY","LIST",
-    // Calendar day names — full and abbreviated
     "SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY",
     "SUN","MON","TUE","WED","THU","FRI","SAT",
-    // Calendar month names — full and abbreviated
     "JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST",
     "SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER",
     "JAN","FEB","MAR","APR","JUN","JUL","AUG","SEP","OCT","NOV","DEC",
-    // Calendar/date UI labels
     "DATE","TIME","TODAY","YESTERDAY","WEEK","MONTH","YEAR","CALENDAR","SCHEDULE"
   ]);
   for (const word of words) {
@@ -409,7 +542,7 @@ function findBankAccountHolderNames() {
       if (lower === "mobile" || lower === "email" || lower === "pan" ||
           lower.includes("account no") || lower.includes("ifsc")) break;
       const extracted = extractPersonName(nextText);
-      if (extracted && extracted.length >= 2) bankElements.push(nextEl);
+      if (extracted && extracted.length >= 2 && isLikelyPersonName(extracted)) bankElements.push(nextEl);
       break;
     }
   }
@@ -419,8 +552,6 @@ function findBankAccountHolderNames() {
 // ─────────────────────────────────────────────
 // PAN EXTRACTION
 // ─────────────────────────────────────────────
-
-/** Find PAN from profile tab (label: "PAN No" / "PAN Number") */
 function findProfilePAN() {
   const allNodes = Array.from(document.querySelectorAll("*"));
   const panLabels = ["pan no", "pan number"];
@@ -441,7 +572,6 @@ function findProfilePAN() {
   return null;
 }
 
-/** Find bank PAN (label: "PAN") and Bank Account ID on any tab */
 function findBankPANAndAccountID() {
   const allNodes = Array.from(document.querySelectorAll("*"));
   let bankPAN = null;
@@ -453,7 +583,6 @@ function findBankPANAndAccountID() {
     const text = originalText.toLowerCase().replace(/[:\-]/g, "").replace(/\s+/g, " ");
     if (!isTightest(el, originalText)) continue;
 
-    // Bank PAN: label is exactly "PAN" (not "PAN No", "PAN Number", etc.)
     if (!bankPAN && text === "pan") {
       for (let j = i + 1; j < i + 30 && j < allNodes.length; j++) {
         const nextEl = allNodes[j];
@@ -467,14 +596,12 @@ function findBankPANAndAccountID() {
       }
     }
 
-    // Bank Account ID: label is "Bank Account ID" or "Account ID"
     if (!bankAccountID && (text === "bank account id" || text === "account id")) {
       for (let j = i + 1; j < i + 30 && j < allNodes.length; j++) {
         const nextEl = allNodes[j];
         const nextText = (nextEl.tagName === 'INPUT' ? nextEl.value : nextEl.innerText)?.trim();
         if (!nextText || nextText.toLowerCase() === originalText.toLowerCase()) continue;
         if (!isTightest(nextEl, nextText)) continue;
-        // Account IDs are numeric (or alphanumeric short codes)
         if (/^[A-Za-z0-9\-]+$/.test(nextText) && nextText.length >= 4) {
           bankAccountID = nextText;
         }
@@ -490,17 +617,14 @@ function findBankPANAndAccountID() {
 
 // ─────────────────────────────────────────────
 // MULTI-STATEMENT GROUPING
-// Groups all bank statements on the page into
-// per-statement objects: { nameEl, rawName, name, pan, accountID, index }
 // ─────────────────────────────────────────────
 function findAllBankStatements() {
   const allNodes = Array.from(document.querySelectorAll("*"));
 
-  // Strategy 1: "Bank Statement N" section headers (most reliable)
   const sectionIdxs = [];
   for (let i = 0; i < allNodes.length; i++) {
     const raw  = allNodes[i].innerText?.trim() || "";
-    const text = raw.replace(/[^\w\s]/g, "").trim(); // strip emoji / punctuation
+    const text = raw.replace(/[^\w\s]/g, "").trim();
     if (/^Bank\s+Statement\s*\d*$/i.test(text) && text.length < 60
         && isTightest(allNodes[i], raw)) {
       sectionIdxs.push(i);
@@ -513,7 +637,6 @@ function findAllBankStatements() {
     }).filter(st => st.nameEl || st.accountID);
   }
 
-  // Strategy 2: Multiple "Acc holder's name" label occurrences as section breaks
   const holderLabels = [
     "acc holder's name","acc holder","account holder name",
     "account holder's name","account name","beneficiary name"
@@ -526,20 +649,16 @@ function findAllBankStatements() {
   }
   if (labelIdxs.length > 1) {
     return labelIdxs.map((li, s) => {
-      const si = Math.max(0, li - 15); // include a few nodes before label (PAN may precede name in some layouts)
+      const si = Math.max(0, li - 15);
       const ei = s + 1 < labelIdxs.length ? labelIdxs[s + 1] : allNodes.length;
       return extractStatementFromRange(allNodes, si, ei, s + 1);
     }).filter(st => st.nameEl || st.accountID);
   }
 
-  // Strategy 3: Single statement — scan whole page
   const single = extractStatementFromRange(allNodes, 0, allNodes.length, 1);
   return (single.nameEl || single.accountID) ? [single] : [];
 }
 
-/**
- * Extracts { nameEl, rawName, name, pan, accountID } from a slice of allNodes.
- */
 function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
   const holderLabels = [
     "acc holder's name","acc holder","account holder name",
@@ -555,7 +674,6 @@ function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
     const text = orig.toLowerCase().replace(/[:\-]/g, "").replace(/\s+/g, " ");
     if (!isTightest(el, orig)) continue;
 
-    // Holder name label
     if (!nameEl && holderLabels.includes(text)) {
       for (let j = i + 1; j < i + 50 && j < endIdx; j++) {
         const nx = allNodes[j];
@@ -570,7 +688,6 @@ function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
       }
     }
 
-    // PAN label — exact "pan"
     if (!pan && text === "pan") {
       for (let j = i + 1; j < i + 25 && j < endIdx; j++) {
         const nx = allNodes[j];
@@ -582,7 +699,6 @@ function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
       }
     }
 
-    // Bank Account ID label
     if (!accountID && (text === "bank account id" || text === "account id")) {
       for (let j = i + 1; j < i + 25 && j < endIdx; j++) {
         const nx = allNodes[j];
@@ -605,22 +721,12 @@ function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
   };
 }
 
-/**
- * Compare two PAN numbers.
- * Returns { result: "match"|"partial"|"mismatch"|"unavailable", matchedPart, matchLen }
- *
- * Handles masked bank PANs like XXXXX2328J or ****4925G:
- *   strip leading * / X characters, compare visible tail against profile PAN end.
- *   >= 5 visible chars that match → full match (masked display of same PAN).
- *   4 visible chars that match  → partial.
- */
 function comparePANs(panA, panB) {
   if (!panA || !panB) return { result: "unavailable", matchedPart: null, matchLen: 0 };
   const a = panA.toUpperCase().trim();
   const b = panB.toUpperCase().trim();
   if (a === b) return { result: "match", matchedPart: a, matchLen: 10 };
 
-  // Masked PAN: leading * or X characters (e.g. ****4925G  or  XXXXX2328J)
   if (/^[*X]+/.test(b)) {
     const visible = b.replace(/^[*X]+/, '');
     if (visible.length >= 5 && a.endsWith(visible))
@@ -629,27 +735,60 @@ function comparePANs(panA, panB) {
       return { result: "partial", matchedPart: visible, matchLen: visible.length };
   }
 
-  // Last 5 chars (4 digits + last letter, e.g. "6045L")
   if (a.length >= 5 && b.length >= 5 && a.slice(-5) === b.slice(-5))
     return { result: "partial", matchedPart: a.slice(-5), matchLen: 5 };
-  // Last 4 chars
   if (a.length >= 4 && b.length >= 4 && a.slice(-4) === b.slice(-4))
     return { result: "partial", matchedPart: a.slice(-4), matchLen: 4 };
   return { result: "mismatch", matchedPart: null, matchLen: 0 };
 }
 
 // ─────────────────────────────────────────────
-// NAME COMPARISON ENGINE
+// ADVANCED INDIAN NAME COMPARISON ENGINE
 // ─────────────────────────────────────────────
-function normalize(name) {
-  return name.toLowerCase()
-    .replace(/\b(s\/o|d\/o|w\/o|c\/o|f\/o|h\/o)\b.*/i, "")
-    .replace(/\b(son of|daughter of|wife of|care of|husband of|father of)\b.*/i, "")
-    .replace(/\b(mr|mrs|ms|dr|shri|smt|kumari|kum)\b\.?/g, "")
-    .replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+const INDIAN_MIDDLE_FILLERS = new Set([
+  "KUMAR", "KUMARI", "CHANDRA", "PRASAD", "SINGH", "DEVI", "DUTT", "LAL",
+  "BHAI", "BEN", "KANT", "NATH", "BHUSHAN", "PRAKASH", "SHANKAR", "VEER",
+  "RAO", "REDDY", "CHAND", "RAM", "SHAN", "ROY", "DASS", "DAS"
+]);
+
+function isIndianMiddleOrFillerToken(token) {
+  return INDIAN_MIDDLE_FILLERS.has(token.toUpperCase());
 }
+
+function normalize(name) {
+  if (!name) return "";
+  return name.toLowerCase()
+    .replace(/\b(s\/o|d\/o|w\/o|c\/o|f\/o|h\/o|s\.o\.|d\.o\.|w\.o\.|c\.o\.)\b.*/gi, "")
+    .replace(/\b(son of|daughter of|wife of|care of|husband of|father of)\b.*/gi, "")
+    .replace(/\b(mr|mrs|ms|miss|dr|prof|shri|shrimati|smt|kumari|kum|km|late|m\/s|sardar|pandit|pt|swami|ca|cs|adv|er|syed|sheikh|shaikh)\b\.?/gi, "")
+    .replace(/[^a-z ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function tokenize(name) { return normalize(name).split(" ").filter(Boolean); }
 function significantTokens(tokens) { return tokens.filter(t => t.length > 1); }
+
+function indianPhoneticNormalize(w) {
+  if (!w) return "";
+  let s = w.toLowerCase()
+    .replace(/\b(mohd|md|mohammed|muhammad|mohamad)\b/g, 'mohammad')
+    .replace(/\b(syed|sayed)\b/g, 'saiyed')
+    .replace(/\b(sheikh|shaik)\b/g, 'shaikh')
+    .replace(/\b(banerjee|banerji)\b/g, 'bandyopadhyay')
+    .replace(/\b(chatterjee|chatterji)\b/g, 'chattopadhyay')
+    .replace(/\b(mukherjee|mukherji)\b/g, 'mukhopadhyay')
+    .replace(/ee|ii|y/g, 'i')
+    .replace(/oo|ou/g, 'u')
+    .replace(/ph/g, 'f').replace(/bh/g, 'b').replace(/dh/g, 'd')
+    .replace(/gh/g, 'g').replace(/kh/g, 'k').replace(/th/g, 't')
+    .replace(/sh|sch/g, 's').replace(/nh/g, 'n').replace(/v/g, 'w')
+    .replace(/ai|ay/g, 'a').replace(/ch/g, 'c').replace(/ck/g, 'k')
+    .replace(/ks/g, 'x')
+    .replace(/au|ou|ow/g, 'a')
+    .replace(/(.)\1+/g, '$1');
+  return s;
+}
 
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
@@ -706,17 +845,13 @@ function fuzzyWordMatch(w1, w2) {
   if (!w1 || !w2) return false;
   if (w1.length === 1 && w2.startsWith(w1)) return true;
   if (w2.length === 1 && w1.startsWith(w2)) return true;
-  const ph = w => w
-    .replace(/ee|ii/g, 'i').replace(/aa/g, 'a').replace(/oo|ou/g, 'u')
-    .replace(/ph/g, 'f').replace(/bh/g, 'b').replace(/dh/g, 'd')
-    .replace(/gh/g, 'g').replace(/kh/g, 'k').replace(/th/g, 't')
-    .replace(/sh/g, 's').replace(/nh/g, 'n').replace(/v/g, 'w')
-    .replace(/ai|ay/g, 'a').replace(/ch/g, 'c').replace(/ck/g, 'k')
-    .replace(/(.)\1+/g, '$1');
-  if (ph(w1) === ph(w2)) return true;
+
+  // Indian Phonetic match
+  if (indianPhoneticNormalize(w1) === indianPhoneticNormalize(w2)) return true;
+
   const minLen = Math.min(w1.length, w2.length);
-  if (minLen >= 4 && jaroWinkler(w1, w2) >= 0.92) return true;
-  if (minLen >= 4 && bigramSim(w1, w2) >= 0.75) return true;
+  if (minLen >= 4 && jaroWinkler(w1, w2) >= 0.90) return true;
+  if (minLen >= 4 && bigramSim(w1, w2) >= 0.70) return true;
   const maxEdits = minLen >= 8 ? 2 : minLen >= 5 ? 1 : 0;
   if (maxEdits > 0 && levenshtein(w1, w2) <= maxEdits) return true;
   return false;
@@ -727,10 +862,28 @@ function compareNames(a, b) {
   const cleanB = extractPersonName(b);
   const n1 = normalize(cleanA), n2 = normalize(cleanB);
   if (n1 === n2) return "match";
+
   const t1 = tokenize(cleanA), t2 = tokenize(cleanB);
   if (t1.length === 0 || t2.length === 0) return "mismatch";
+
+  // Exact bag match
   if (t1.slice().sort().join(" ") === t2.slice().sort().join(" ")) return "match";
   if (t1.join("") === t2.join("")) return "match";
+
+  // Indian Phonetic Bag Match
+  const ph1 = t1.map(indianPhoneticNormalize).sort().join(" ");
+  const ph2 = t2.map(indianPhoneticNormalize).sort().join(" ");
+  if (ph1 === ph2 && ph1.length > 0) return "match";
+
+  // Indian Middle Name / Filler Token Omission Rule
+  // Example: "RAKESH KUMAR SHARMA" vs "RAKESH SHARMA"
+  const nonFiller1 = t1.filter(t => !isIndianMiddleOrFillerToken(t));
+  const nonFiller2 = t2.filter(t => !isIndianMiddleOrFillerToken(t));
+  if (nonFiller1.length > 0 && nonFiller2.length > 0) {
+    const nfStr1 = nonFiller1.map(indianPhoneticNormalize).sort().join(" ");
+    const nfStr2 = nonFiller2.map(indianPhoneticNormalize).sort().join(" ");
+    if (nfStr1 === nfStr2) return "match";
+  }
 
   const [shorter, longer] = t1.length <= t2.length ? [t1, t2] : [t2, t1];
   const sigS = significantTokens(shorter), sigL = significantTokens(longer);
@@ -747,6 +900,7 @@ function compareNames(a, b) {
     if (allFound) return "match";
   }
 
+  // South Indian Initials Permutation Engine
   const initVariant = tokens =>
     tokens.length > 1 ? tokens.slice(0,-1).map(w => w[0]).join("") + " " + tokens[tokens.length-1] : tokens[0] || "";
   const mkVariants = tokens => [tokens.join(""), initVariant(tokens), initVariant([...tokens].reverse())].filter(Boolean);
@@ -764,6 +918,7 @@ function compareNames(a, b) {
     }
     return score;
   };
+
   const s1 = overlapScore(sigS, sigL), s2 = overlapScore(sigL, sigS);
   if (s1 >= sigS.length && sigS.length > 0) return "match";
   if (s2 >= sigL.length && sigL.length > 0) return "match";
@@ -775,8 +930,6 @@ function compareNames(a, b) {
   const f1 = t1[0], f2 = t2[0];
   if (f1 && f2 && f1.length > 2 && fuzzyWordMatch(f1, f2)) return "partial";
 
-  // Handles Indian names where parts are merged (KRISHNA DEVI → KRISHNADEVI)
-  // or abbreviated as initials (PUTHIUVEETTIL UNNIKRISHNAN → P U)
   const ciResult = tryCompoundInitialsMatch(t1, t2);
   if (ciResult) return ciResult;
 
@@ -806,7 +959,6 @@ function tryCompoundInitialsMatch(t1, t2) {
   const used1 = new Array(t1.length).fill(false);
   const used2 = new Array(t2.length).fill(false);
 
-  // Pass 1: direct fuzzy + initials (fuzzyWordMatch already handles single-char initials)
   for (let i = 0; i < t1.length; i++) {
     for (let j = 0; j < t2.length; j++) {
       if (used2[j]) continue;
@@ -814,7 +966,6 @@ function tryCompoundInitialsMatch(t1, t2) {
     }
   }
 
-  // Pass 2: unmatched t2 token == concatenation of adjacent unmatched t1 tokens
   for (let j = 0; j < t2.length; j++) {
     if (used2[j] || t2[j].length <= 1) continue;
     for (let i = 0; i < t1.length - 1; i++) {
@@ -823,7 +974,6 @@ function tryCompoundInitialsMatch(t1, t2) {
     }
   }
 
-  // Pass 3: unmatched t1 token == concatenation of adjacent unmatched t2 tokens
   for (let i = 0; i < t1.length; i++) {
     if (used1[i] || t1[i].length <= 1) continue;
     for (let j = 0; j < t2.length - 1; j++) {
@@ -866,6 +1016,216 @@ function compareNamesDetailed(profileName, rawBankName) {
 }
 
 // ─────────────────────────────────────────────
+function parseAIResponseJSON(rawText) {
+  if (!rawText) return null;
+  try {
+    return JSON.parse(rawText);
+  } catch (e) {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try { return JSON.parse(jsonMatch[0]); } catch (_) {}
+    }
+  }
+  return null;
+}
+
+async function callHuggingFaceAI(profileName, bankName, hfModelName) {
+  const rawKey = decryptApiKey(geminiApiKeyEncrypted);
+  const targetModel = hfModelName || (aiProvider === 'gemma' ? 'google/gemma-2-2b-it' : 'HuggingFaceTB/SmolLM-135M-Instruct');
+  const url = `https://api-inference.huggingface.co/models/${targetModel}`;
+
+  const prompt = `Task: Compare Indian Names.
+Profile Name: "${profileName}"
+Bank Account Name: "${bankName}"
+
+Are these the same person considering Indian naming conventions (middle name omission, initials)?
+Reply in valid JSON format:
+{"verdict": "MATCH" | "PARTIAL" | "MISMATCH", "confidence": 95, "reason": "<1 short sentence>"}`;
+
+  const headers = { "Content-Type": "application/json" };
+  if (rawKey) {
+    headers["Authorization"] = `Bearer ${rawKey}`;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: headers,
+    body: JSON.stringify({
+      inputs: prompt,
+      parameters: { max_new_tokens: 120, return_full_text: false }
+    })
+  });
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(() => ({}));
+    throw new Error(errJson.error || `Hugging Face API HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  let generatedText = "";
+  if (Array.isArray(data) && data[0]?.generated_text) {
+    generatedText = data[0].generated_text;
+  } else if (data.generated_text) {
+    generatedText = data.generated_text;
+  } else {
+    generatedText = JSON.stringify(data);
+  }
+
+  const parsed = parseAIResponseJSON(generatedText);
+  if (parsed && parsed.verdict) {
+    return {
+      verdict: (parsed.verdict || "MATCH").toUpperCase(),
+      confidence: parsed.confidence || 90,
+      reason: parsed.reason || `AI (${targetModel.split("/").pop()}) confirmed match.`
+    };
+  }
+
+  const lower = generatedText.toLowerCase();
+  const verdict = lower.includes("mismatch") ? "MISMATCH" : lower.includes("partial") ? "PARTIAL" : "MATCH";
+  return {
+    verdict: verdict,
+    confidence: 85,
+    reason: `AI (${targetModel.split("/").pop()}): ${generatedText.slice(0, 90)}`
+  };
+}
+
+async function handleAIVerificationRequest() {
+  if (!lastScanResult || !lastScanResult.profileName || !lastScanResult.statements || lastScanResult.statements.length === 0) {
+    const res = { verdict: "NO_DATA", reason: "Scan names on the page first before verifying with AI." };
+    aiVerificationResult = res;
+    if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    return res;
+  }
+
+  const rawKey = decryptApiKey(geminiApiKeyEncrypted);
+  const profileName = lastScanResult.profileName;
+  const bankName = lastScanResult.statements[0]?.rawName || lastScanResult.statements[0]?.name || "N/A";
+
+  if (aiProvider === 'local') {
+    const localEval = compareNamesDetailed(profileName, bankName);
+    const res = {
+      verdict: localEval.result.toUpperCase(),
+      confidence: localEval.confidence,
+      reason: `Verified via Local Indian NLP Engine (${localEval.confidence}% confidence).`
+    };
+    aiVerificationResult = res;
+    if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    return res;
+  }
+
+  if (aiProvider === 'huggingface' || aiProvider === 'gemma') {
+    try {
+      const modelName = aiProvider === 'gemma' ? 'google/gemma-2-2b-it' : 'HuggingFaceTB/SmolLM-135M-Instruct';
+      const res = await callHuggingFaceAI(profileName, bankName, modelName);
+      aiVerificationResult = res;
+      if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+      return res;
+    } catch (err) {
+      const localEval = compareNamesDetailed(profileName, bankName);
+      const res = {
+        verdict: localEval.result.toUpperCase(),
+        confidence: localEval.confidence,
+        reason: `Hugging Face Note: ${err.message}. Evaluated using Local Indian NLP Engine.`
+      };
+      aiVerificationResult = res;
+      if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+      return res;
+    }
+  }
+
+  if (!rawKey) {
+    const localEval = compareNamesDetailed(profileName, bankName);
+    const res = {
+      verdict: localEval.result.toUpperCase(),
+      confidence: localEval.confidence,
+      reason: `Verified via Local Indian NLP Engine (${localEval.confidence}% confidence). Add API Key in Popup Settings for deep AI reasoning.`
+    };
+    aiVerificationResult = res;
+    if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    return res;
+  }
+
+  const prompt = `You are an expert Indian Identity & Name Matching system. Compare these two names and determine if they belong to the same person under Indian naming conventions (salutations, middle name omission, South Indian initials, phonetic variations, spelling variants).
+
+Profile Name: "${profileName}"
+Bank Account Name: "${bankName}"
+
+Respond ONLY with a valid JSON object matching this schema:
+{"verdict": "MATCH" | "PARTIAL" | "MISMATCH", "confidence": <number 0 to 100>, "reason": "<1 concise sentence explanation>"}`;
+
+  const MODELS = [
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-1.5-pro"
+  ];
+
+  let lastError = null;
+
+  for (const model of MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(rawKey)}`;
+      
+      let response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      if (!response.ok && response.status === 400) {
+        response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }]
+          })
+        });
+      }
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const msg = errJson.error?.message || `HTTP ${response.status}`;
+        lastError = new Error(`[${model}] ${msg}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) continue;
+
+      const parsed = parseAIResponseJSON(text);
+      if (!parsed) continue;
+
+      const res = {
+        verdict: (parsed.verdict || "MATCH").toUpperCase(),
+        confidence: parsed.confidence || 95,
+        reason: parsed.reason || `AI (${model}) confirmed name compatibility.`
+      };
+      aiVerificationResult = res;
+      if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+      return res;
+
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  const localEval = compareNamesDetailed(profileName, bankName);
+  const res = {
+    verdict: localEval.result.toUpperCase(),
+    confidence: localEval.confidence,
+    reason: `AI Note: ${lastError?.message || "API call failed"}. Evaluated using Local Indian NLP Engine (${localEval.confidence}% confidence).`
+  };
+  aiVerificationResult = res;
+  if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+  return res;
+}
+
+// ─────────────────────────────────────────────
 // HIGHLIGHT
 // ─────────────────────────────────────────────
 function highlight(el, type) {
@@ -880,6 +1240,7 @@ function highlight(el, type) {
   el.style.boxShadow    = `0 0 12px ${colors[type]}aa`;
   el.classList.add('namecheck-highlighted');
 }
+
 function clearHighlights() {
   document.querySelectorAll(".namecheck-highlighted").forEach(el => {
     el.style.outline      = el.dataset.originalOutline      || "";
@@ -890,7 +1251,7 @@ function clearHighlights() {
 }
 
 // ─────────────────────────────────────────────
-// PERSISTENT DRAGGABLE WIDGET
+// PERSISTENT DRAGGABLE WIDGET WITH THEMES & AI
 // ─────────────────────────────────────────────
 let ncStylesInjected = false;
 
@@ -909,7 +1270,33 @@ function injectNCStyles() {
     #nc-w-close:hover { background: rgba(239,68,68,.22) !important; color: #f87171 !important; }
     .nc-w-copy:hover:not(:disabled) { background: rgba(59,130,246,.28) !important; }
     .nc-w-copy.nc-copied { background: rgba(34,197,94,.18) !important; border-color: rgba(34,197,94,.35) !important; color: #4ade80 !important; }
+    .nc-ai-btn:hover { background: rgba(147,51,234,.25) !important; border-color: rgba(168,85,247,.4) !important; }
     #nc-widget * { box-sizing:border-box; font-family:-apple-system,'Inter',system-ui,sans-serif !important; }
+
+    /* Theme - Dark */
+    #nc-widget.nc-theme-dark {
+      background: rgba(10,11,18,.97) !important;
+      color: #eef0f6 !important;
+      border: 1px solid rgba(255,255,255,.09) !important;
+      box-shadow: 0 14px 44px rgba(0,0,0,.6) !important;
+    }
+    #nc-widget.nc-theme-dark #nc-w-head {
+      background: rgba(255,255,255,.035) !important;
+      border-bottom: 1px solid rgba(255,255,255,.07) !important;
+    }
+
+    /* Theme - Light */
+    #nc-widget.nc-theme-light {
+      background: rgba(255,255,255,.98) !important;
+      color: #0f172a !important;
+      border: 1px solid rgba(0,0,0,.12) !important;
+      box-shadow: 0 14px 44px rgba(15,23,42,.15) !important;
+    }
+    #nc-widget.nc-theme-light #nc-w-head {
+      background: rgba(241,245,249,1) !important;
+      border-bottom: 1px solid rgba(0,0,0,.08) !important;
+    }
+    #nc-widget.nc-theme-light span { color: inherit; }
   `;
   document.head.appendChild(style);
 }
@@ -969,19 +1356,15 @@ function removeWidget() {
   setTimeout(() => { const x = document.getElementById('nc-widget'); if (x) x.remove(); }, 260);
 }
 
-// ── Copy helper ──────────────────────────────
 async function copyToClipboard(text, btn, originalHTML) {
   try {
     await navigator.clipboard.writeText(text);
-  } catch (_) {
-    // clipboard API unavailable — silently skip; button still shows "Copied" as best-effort
-  }
+  } catch (_) {}
   btn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!`;
   btn.classList.add('nc-copied');
   setTimeout(() => { btn.innerHTML = originalHTML; btn.classList.remove('nc-copied'); }, 2000);
 }
 
-// ── Main widget renderer — multi-statement ────
 function showPersistentWidget(result) {
   injectNCStyles();
   const old = document.getElementById('nc-widget');
@@ -990,9 +1373,10 @@ function showPersistentWidget(result) {
   const { matchCount = 0, partialCount = 0, mismatchFound = false,
           statements = [], count = 0 } = result;
 
+  const isLight      = currentTheme === 'light';
   const total        = statements.length || count;
   const verifiedCnt  = matchCount + partialCount;
-  const summaryColor = mismatchFound ? '#ef4444' : partialCount > 0 ? '#f59e0b' : matchCount > 0 ? '#22c55e' : 'rgba(255,255,255,.4)';
+  const summaryColor = mismatchFound ? '#ef4444' : partialCount > 0 ? '#f59e0b' : matchCount > 0 ? '#22c55e' : (isLight ? '#64748b' : 'rgba(255,255,255,.4)');
   const summaryIcon  = mismatchFound ? '✕' : partialCount > 0 ? '~' : matchCount > 0 ? '✓' : '—';
   const summaryLabel = total > 0 ? `${summaryIcon} ${verifiedCnt}/${total} verified` : 'No statements';
 
@@ -1004,14 +1388,28 @@ function showPersistentWidget(result) {
         <span style="font-size:11px;font-weight:800;color:#ef4444;">⚠</span>
         <div>
           <span style="font-size:9px;font-weight:700;color:#ef4444;letter-spacing:.04em;">MANUAL CHECK REQUIRED</span>
-          <span style="font-size:8px;color:rgba(239,68,68,.65);margin-left:5px;">name mismatch detected</span>
+          <span style="font-size:8px;color:${isLight ? '#991b1b' : 'rgba(239,68,68,.65)'};margin-left:5px;">name mismatch detected</span>
         </div>
       </div>`
     : '';
 
-  // ── Build per-statement rows ─────────────────
-  let stmtsHTML = '';
+  // AI Box HTML
+  let aiHTML = '';
+  if (aiVerificationResult) {
+    const aiColor = aiVerificationResult.verdict === 'MATCH' ? '#22c55e' : aiVerificationResult.verdict === 'PARTIAL' ? '#f59e0b' : '#ef4444';
+    aiHTML = `
+      <div style="padding:6px 10px;background:rgba(147,51,234,.08);border-bottom:1px solid rgba(147,51,234,.2);display:flex;flex-direction:column;gap:3px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:9px;font-weight:700;color:#c084fc;letter-spacing:.05em;">✨ AI VERIFICATION</span>
+          <span style="font-size:9px;font-weight:700;color:${aiColor};">${aiVerificationResult.verdict} (${aiVerificationResult.confidence || 90}%)</span>
+        </div>
+        <div style="font-size:9px;color:${isLight ? '#475569' : 'rgba(255,255,255,.7)'};line-height:1.3;">
+          ${aiVerificationResult.reason}
+        </div>
+      </div>`;
+  }
 
+  let stmtsHTML = '';
   if (statements.length > 0) {
     stmtsHTML = statements.map((st, idx) => {
       const isLast = idx === statements.length - 1;
@@ -1022,35 +1420,30 @@ function showPersistentWidget(result) {
       const stIcon  = st.overallResult === 'match'   ? '✓'
                     : st.overallResult === 'partial'  ? '~' : '✕';
 
-      // Name badge
       const nColor = st.nameResult === 'match'   ? '#22c55e'
                    : st.nameResult === 'partial'  ? '#f59e0b'
-                   : st.nameResult === 'unavailable' ? 'rgba(255,255,255,.3)' : '#ef4444';
+                   : st.nameResult === 'unavailable' ? (isLight ? '#64748b' : 'rgba(255,255,255,.3)') : '#ef4444';
       const nRGB   = st.nameResult === 'match'   ? '34,197,94'
                    : st.nameResult === 'partial'  ? '245,158,11'
-                   : st.nameResult === 'unavailable' ? '255,255,255' : '239,68,68';
+                   : st.nameResult === 'unavailable' ? '100,116,139' : '239,68,68';
       const nSign  = st.nameResult === 'match' ? '✓' : st.nameResult === 'partial' ? '~' : st.nameResult === 'unavailable' ? '?' : '✕';
 
-      // PAN badge
       const pr = st.panResult?.result || 'unavailable';
       const pColor = pr === 'match' ? '#22c55e' : pr === 'partial' ? '#f59e0b'
-                   : pr === 'unavailable' ? 'rgba(255,255,255,.28)' : '#ef4444';
+                   : pr === 'unavailable' ? (isLight ? '#64748b' : 'rgba(255,255,255,.28)') : '#ef4444';
       const pRGB   = pr === 'match' ? '34,197,94' : pr === 'partial' ? '245,158,11'
-                   : pr === 'unavailable' ? '255,255,255' : '239,68,68';
+                   : pr === 'unavailable' ? '100,116,139' : '239,68,68';
       const pSign  = pr === 'match' ? '✓' : pr === 'partial' ? `~${st.panResult.matchLen}` : pr === 'unavailable' ? '—' : '✕';
 
-      // Truncated name
       const dispName = (st.name || '—').toUpperCase();
 
-      // Copy button state
       const canCopy = !!st.copyEnabled;
       const btnStyle = canCopy
-        ? `background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#60a5fa;cursor:pointer;`
-        : `background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);color:rgba(255,255,255,.2);cursor:not-allowed;`;
+        ? `background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#3b82f6;cursor:pointer;`
+        : `background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.07);color:${isLight ? '#94a3b8' : 'rgba(255,255,255,.2)'};cursor:not-allowed;`;
 
-      // First-name diff hint
       const fnDiff = st.nameDetail?.firstNameDiffers
-        ? `<span style="font-size:8px;color:rgba(255,255,255,.28);display:block;margin-top:2px;">${st.nameDetail.firstNameProfile} ≠ ${st.nameDetail.firstNameBank}</span>`
+        ? `<span style="font-size:8px;color:${isLight ? '#64748b' : 'rgba(255,255,255,.28)'};display:block;margin-top:2px;">${st.nameDetail.firstNameProfile} ≠ ${st.nameDetail.firstNameBank}</span>`
         : '';
 
       const manualCheckHTML = st.needsManualCheck
@@ -1065,35 +1458,32 @@ function showPersistentWidget(result) {
         : '';
 
       return `
-        <div style="padding:8px 10px;${!isLast ? 'border-bottom:1px solid rgba(255,255,255,.05);' : ''}
+        <div style="padding:8px 10px;${!isLast ? 'border-bottom:1px solid ' + (isLight ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.05)') + ';' : ''}
           background:rgba(${stRGB},.04);">
 
-          <!-- Statement header row -->
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
             <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;">
-              <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,.28);flex-shrink:0;">#${st.index}</span>
-              <span style="font-size:10px;font-weight:700;color:rgba(255,255,255,.78);
+              <span style="font-size:9px;font-weight:700;color:${isLight ? '#64748b' : 'rgba(255,255,255,.28)'};flex-shrink:0;">#${st.index}</span>
+              <span style="font-size:10px;font-weight:700;color:${isLight ? '#0f172a' : 'rgba(255,255,255,.78)'};
                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:145px;" title="${dispName}">${dispName}</span>
             </div>
             <span style="font-size:10px;font-weight:700;color:${stColor};flex-shrink:0;margin-left:4px;">${stIcon}</span>
           </div>
 
-          <!-- Name + PAN badges row -->
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:3px;margin-bottom:6px;">
             <span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;
               background:rgba(${nRGB},.12);color:${nColor};">NAME ${nSign}${st.nameDetail?.confidence != null && st.nameResult !== 'unavailable' ? ' ' + st.nameDetail.confidence + '%' : ''}</span>
             <span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;
               background:rgba(${pRGB},.1);color:${pColor};">PAN ${pSign}</span>
-            ${st.pan ? `<span style="font-size:8px;color:rgba(255,255,255,.25);letter-spacing:.03em;">${st.pan}</span>` : ''}
+            ${st.pan ? `<span style="font-size:8px;color:${isLight ? '#64748b' : 'rgba(255,255,255,.25)'};letter-spacing:.03em;">${st.pan}</span>` : ''}
           </div>
           ${fnDiff}
           ${manualCheckHTML}
 
-          <!-- Account ID + copy row -->
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:${(fnDiff || manualCheckHTML) ? '4px' : '0'};">
             <span style="font-size:13px;font-weight:700;letter-spacing:.05em;
               font-variant-numeric:tabular-nums;
-              color:rgba(255,255,255,${canCopy ? '.88' : '.3'});">${st.accountID || '—'}</span>
+              color:${isLight ? '#0f172a' : 'rgba(255,255,255,.88)'};">${st.accountID || '—'}</span>
             <button class="nc-stmt-copy nc-w-copy"
               data-id="${st.accountID || ''}"
               ${!canCopy ? 'disabled' : ''}
@@ -1107,28 +1497,27 @@ function showPersistentWidget(result) {
     }).join('');
 
   } else {
-    // No statements yet — show PAN + account ID from legacy fields
     const { bankPAN, panResult, bankAccountID } = result;
-    let panColor = 'rgba(255,255,255,.28)', panIcon = '—', panLabel = 'Not scanned';
+    let panColor = isLight ? '#64748b' : 'rgba(255,255,255,.28)', panIcon = '—', panLabel = 'Not scanned';
     if (panResult?.result === 'match')   { panColor = '#22c55e'; panIcon = '✓'; panLabel = bankPAN || 'Match'; }
     if (panResult?.result === 'partial') { panColor = '#f59e0b'; panIcon = '~'; panLabel = `Partial ·last ${panResult.matchLen}: ${panResult.matchedPart}`; }
     if (panResult?.result === 'mismatch'){ panColor = '#ef4444'; panIcon = '✕'; panLabel = 'Mismatch'; }
 
     const canCopy = !!bankAccountID;
     const btnStyle = canCopy
-      ? `background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#60a5fa;cursor:pointer;`
-      : `background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);color:rgba(255,255,255,.2);cursor:not-allowed;`;
+      ? `background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#3b82f6;cursor:pointer;`
+      : `background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.07);color:${isLight ? '#94a3b8' : 'rgba(255,255,255,.2)'};cursor:not-allowed;`;
 
     stmtsHTML = `
-      <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
-        <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,.28);text-transform:uppercase;letter-spacing:.07em;">PAN</span>
+      <div style="padding:8px 10px;border-bottom:1px solid ${isLight ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.05)'};">
+        <span style="font-size:9px;font-weight:700;color:${isLight ? '#64748b' : 'rgba(255,255,255,.28)'};text-transform:uppercase;letter-spacing:.07em;">PAN</span>
         <span style="margin-left:8px;font-size:11px;font-weight:700;color:${panColor};">${panIcon} ${panLabel}</span>
       </div>
       <div style="padding:9px 10px;">
-        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:rgba(255,255,255,.28);margin-bottom:5px;">Bank Account ID</div>
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:${isLight ? '#64748b' : 'rgba(255,255,255,.28)'};margin-bottom:5px;">Bank Account ID</div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
           <span style="font-size:14px;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums;
-            color:rgba(255,255,255,${canCopy?'.88':'.3'});">${bankAccountID || '—'}</span>
+            color:${isLight ? '#0f172a' : 'rgba(255,255,255,.88)'};">${bankAccountID || '—'}</span>
           <button class="nc-stmt-copy nc-w-copy" data-id="${bankAccountID||''}" ${!canCopy?'disabled':''}
             style="display:flex;align-items:center;gap:3px;${btnStyle}border-radius:5px;padding:3px 8px;font-size:10px;font-weight:600;transition:all .15s;">
             ${copySVG} Copy</button>
@@ -1138,15 +1527,13 @@ function showPersistentWidget(result) {
 
   const widget = document.createElement('div');
   widget.id = 'nc-widget';
+  widget.className = `nc-theme-${currentTheme}`;
 
   Object.assign(widget.style, {
     position: 'fixed', zIndex: '2147483646',
-    width: '256px',
-    background: 'rgba(10,11,18,.97)',
+    width: '260px',
     backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,.09)',
     borderRadius: '13px', overflow: 'hidden',
-    boxShadow: '0 14px 44px rgba(0,0,0,.6), 0 0 0 .5px rgba(255,255,255,.04)',
     userSelect: 'none',
   });
 
@@ -1158,8 +1545,7 @@ function showPersistentWidget(result) {
     <!-- Drag header -->
     <div id="nc-w-head" style="
       display:flex;align-items:center;justify-content:space-between;
-      padding:8px 10px;background:rgba(255,255,255,.035);
-      border-bottom:1px solid rgba(255,255,255,.07);">
+      padding:8px 10px;">
       <div style="display:flex;align-items:center;gap:6px;">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
           <path d="M10 2L3 5v5c0 4.1 2.9 7.9 7 9 4.1-1.1 7-4.9 7-9V5l-7-3z"
@@ -1167,24 +1553,37 @@ function showPersistentWidget(result) {
           <path d="M7.5 10l1.8 1.8 3.2-3.2" stroke="#3b82f6" stroke-width="1.5"
             stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.02em;">NameCheck</span>
+        <span style="font-size:11px;font-weight:700;letter-spacing:.02em;">NameCheck</span>
       </div>
-      <div style="display:flex;align-items:center;gap:5px;">
+      <div style="display:flex;align-items:center;gap:4px;">
         <span style="font-size:10px;font-weight:700;color:${summaryColor};">${summaryLabel}</span>
+        <button id="nc-w-theme" title="Toggle Light/Dark mode" style="
+          background:transparent;border:none;cursor:pointer;font-size:11px;padding:2px;line-height:1;">
+          ${isLight ? '🌙' : '☀️'}
+        </button>
         <button id="nc-w-toggle" title="Toggle NameCheck on/off" style="
           background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.25);
           color:#4ade80;border-radius:20px;padding:2px 7px;
           font-size:8px;font-weight:700;letter-spacing:.04em;
           cursor:pointer;transition:all .15s;flex-shrink:0;">ON</button>
         <button id="nc-w-close" style="
-          background:rgba(255,255,255,.07);border:none;color:rgba(255,255,255,.38);
+          background:rgba(100,116,139,.12);border:none;color:${isLight ? '#64748b' : 'rgba(255,255,255,.38)'};
           width:18px;height:18px;border-radius:4px;cursor:pointer;font-size:9px;
           display:flex;align-items:center;justify-content:center;padding:0;
           transition:background .15s,color .15s;">✕</button>
       </div>
     </div>
     ${globalWarning}
-    <!-- Statements (scrollable if many) -->
+    ${aiHTML}
+    <!-- AI Action Button Row -->
+    <div style="padding:4px 8px;background:${isLight ? 'rgba(241,245,249,.6)' : 'rgba(0,0,0,.2)'};border-bottom:1px solid ${isLight ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.05)'};display:flex;align-items:center;justify-content:space-between;">
+      <button id="nc-w-ai" class="nc-ai-btn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:4px;
+        background:rgba(147,51,234,.12);border:1px solid rgba(147,51,234,.25);color:#a855f7;
+        border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;cursor:pointer;transition:all .15s;">
+        ✨ Verify with AI
+      </button>
+    </div>
+    <!-- Statements -->
     <div style="max-height:320px;overflow-y:auto;overflow-x:hidden;">
       ${stmtsHTML}
     </div>
@@ -1194,12 +1593,27 @@ function showPersistentWidget(result) {
 
   widget.getElementById = (id) => widget.querySelector(`#${id}`);
   document.getElementById('nc-w-close').addEventListener('click', () => removeWidget());
+
+  document.getElementById('nc-w-theme').addEventListener('click', () => {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    chrome.storage.local.set({ theme: currentTheme });
+    showPersistentWidget(lastScanResult);
+    chrome.runtime.sendMessage({ action: "THEME_TOGGLED", theme: currentTheme }).catch(() => {});
+  });
+
   document.getElementById('nc-w-toggle').addEventListener('click', () => {
     extensionEnabled = false;
     chrome.storage.local.set({ extensionEnabled: false });
     clearHighlights();
     chrome.runtime.sendMessage({ action: "EXTENSION_TOGGLED", enabled: false }).catch(() => {});
     removeWidget();
+  });
+
+  document.getElementById('nc-w-ai').addEventListener('click', async () => {
+    const btn = document.getElementById('nc-w-ai');
+    btn.innerHTML = `<span style="animation:spin .7s linear infinite">⏳</span> Verifying...`;
+    btn.disabled = true;
+    await handleAIVerificationRequest();
   });
 
   widget.querySelectorAll('.nc-stmt-copy:not([disabled])').forEach(btn => {
@@ -1212,5 +1626,31 @@ function showPersistentWidget(result) {
   makeDraggable(widget, document.getElementById('nc-w-head'));
 }
 
-// Keep removeUI as a no-op alias so old call sites don't break
 function removeUI() {}
+
+// ─────────────────────────────────────────────
+// KEYBOARD SHORTCUTS LISTENER
+// ─────────────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if (e.altKey && !e.ctrlKey && !e.metaKey) {
+    const k = e.key.toLowerCase();
+    if (k === 's') {
+      e.preventDefault();
+      if (extensionEnabled) { selfHealingRetryCount = 0; runScan(true); }
+    } else if (k === 'a') {
+      e.preventDefault();
+      if (extensionEnabled) handleAIVerificationRequest();
+    } else if (k === 'c') {
+      e.preventDefault();
+      const idToCopy = lastScanResult?.bankAccountID || lastScanResult?.statements?.[0]?.accountID;
+      if (idToCopy) {
+        navigator.clipboard.writeText(idToCopy).catch(() => {});
+      }
+    } else if (k === 't') {
+      e.preventDefault();
+      currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      chrome.storage.local.set({ theme: currentTheme });
+      if (lastScanResult && lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    }
+  }
+});

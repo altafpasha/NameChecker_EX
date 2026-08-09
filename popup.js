@@ -1,5 +1,14 @@
 document.addEventListener("DOMContentLoaded", async () => {
   const scanBtn          = document.getElementById("scanBtn");
+  const aiBtn            = document.getElementById("aiBtn");
+  const themeBtn         = document.getElementById("themeBtn");
+  const settingsBtn      = document.getElementById("settingsBtn");
+  const settingsModal    = document.getElementById("settingsModal");
+  const closeModalBtn    = document.getElementById("closeModalBtn");
+  const apiKeyInput      = document.getElementById("apiKeyInput");
+  const saveKeyBtn       = document.getElementById("saveKeyBtn");
+  const clearKeyBtn      = document.getElementById("clearKeyBtn");
+
   const monitoringStatus = document.getElementById("monitoring-status");
   const statusText       = document.getElementById("status-text");
   const valProfile       = document.getElementById("val-profile");
@@ -14,7 +23,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const partialPanel     = document.getElementById("partial-panel");
   const fnProfile        = document.getElementById("fn-profile");
   const fnBank           = document.getElementById("fn-bank");
-  // PAN elements
+
+  const aiBox            = document.getElementById("ai-box");
+  const aiVerdict        = document.getElementById("ai-verdict");
+  const aiReason         = document.getElementById("ai-reason");
+
   const valProfilePAN    = document.getElementById("val-profile-pan");
   const valBankPAN       = document.getElementById("val-bank-pan");
   const panBadge         = document.getElementById("pan-badge");
@@ -29,6 +42,166 @@ document.addEventListener("DOMContentLoaded", async () => {
   const copySVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
   const checkSVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
 
+  let currentTheme = 'dark';
+
+  monitoringStatus.style.cursor = "pointer";
+  monitoringStatus.title = "Click to auto-reconnect scanner to dashboard";
+  monitoringStatus.addEventListener("click", () => {
+    autoInjectAndConnect();
+  });
+
+  function applyTheme(theme) {
+    currentTheme = theme || 'dark';
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    themeBtn.innerText = currentTheme === 'light' ? '🌙' : '☀️';
+  }
+
+  const providerSelect = document.getElementById("providerSelect");
+  const modalBadge     = document.getElementById("modalBadge");
+
+  function updateModalBadge(provider) {
+    if (provider === "huggingface") {
+      modalBadge.innerText = "SmolLM-135M Instruct (Micro LLM ~270MB Size)";
+      apiKeyInput.placeholder = "Enter HuggingFace Token (Optional)...";
+    } else if (provider === "gemma") {
+      modalBadge.innerText = "Google Gemma-2B Instruct Model";
+      apiKeyInput.placeholder = "Enter HuggingFace Token...";
+    } else if (provider === "local") {
+      modalBadge.innerText = "Local Indian NLP Classifier (Zero API Key)";
+      apiKeyInput.placeholder = "No API Key required for Local Engine";
+    } else {
+      modalBadge.innerText = "Google Gemini (Ultra-Fast Free Tier)";
+      apiKeyInput.placeholder = "Enter API Key...";
+    }
+  }
+
+  providerSelect.addEventListener("change", () => {
+    updateModalBadge(providerSelect.value);
+  });
+
+  const allowedDomainsInput       = document.getElementById("allowedDomainsInput");
+  const toggleDomainVisibilityBtn = document.getElementById("toggleDomainVisibilityBtn");
+
+  if (toggleDomainVisibilityBtn) {
+    toggleDomainVisibilityBtn.addEventListener("click", () => {
+      if (allowedDomainsInput.type === "password") {
+        allowedDomainsInput.type = "text";
+        toggleDomainVisibilityBtn.innerText = "🙈";
+      } else {
+        allowedDomainsInput.type = "password";
+        toggleDomainVisibilityBtn.innerText = "👁️";
+      }
+    });
+  }
+
+  function encryptDomainString(str) {
+    if (!str) return "";
+    try {
+      return btoa(str.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ (i % 7 + 17))).join(""));
+    } catch (e) { return str; }
+  }
+
+  function decryptDomainString(enc) {
+    if (!enc) return "";
+    try {
+      const str = atob(enc);
+      return str.split("").map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ (i % 7 + 17))).join("");
+    } catch (e) { return enc; }
+  }
+
+  // Load theme and saved API key state
+  chrome.storage.local.get(['theme', 'extensionEnabled', 'geminiApiKey', 'aiProvider', 'allowedDomains'], (res) => {
+    applyTheme(res.theme || 'dark');
+    updateToggleUI(res.extensionEnabled !== false);
+    if (res.aiProvider) providerSelect.value = res.aiProvider;
+    updateModalBadge(providerSelect.value);
+    if (res.geminiApiKey) {
+      apiKeyInput.value = "••••••••••••••••";
+    }
+    if (res.allowedDomains) {
+      allowedDomainsInput.value = decryptDomainString(res.allowedDomains);
+    } else {
+      allowedDomainsInput.value = "ibnbfc.in";
+    }
+  });
+
+  themeBtn.addEventListener("click", () => {
+    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(nextTheme);
+    chrome.storage.local.set({ theme: nextTheme });
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, { action: "SET_THEME", theme: nextTheme }, () => {
+        if (chrome.runtime.lastError) {}
+      });
+    }
+  });
+
+  settingsBtn.addEventListener("click", () => {
+    settingsModal.classList.add("visible");
+  });
+
+  closeModalBtn.addEventListener("click", () => {
+    settingsModal.classList.remove("visible");
+  });
+
+  saveKeyBtn.addEventListener("click", () => {
+    const key = apiKeyInput.value.trim();
+    const selectedProvider = providerSelect.value;
+    const rawDomains = allowedDomainsInput.value.trim();
+    const normalizedDomains = rawDomains
+      .split(/[\s,\n]+/)
+      .map(d => d.trim())
+      .filter(Boolean)
+      .join(", ");
+    const encDomains = encryptDomainString(normalizedDomains);
+
+    chrome.storage.local.set({ aiProvider: selectedProvider, allowedDomains: encDomains });
+
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, {
+        action: "SAVE_SETTINGS",
+        apiKey: key && !key.startsWith("••••") ? key : null,
+        provider: selectedProvider,
+        allowedDomains: encDomains
+      }, () => {
+        if (chrome.runtime.lastError) {}
+      });
+    }
+
+    saveKeyBtn.innerText = "Saved!";
+    setTimeout(() => {
+      saveKeyBtn.innerText = "Save Settings";
+      settingsModal.classList.remove("visible");
+    }, 800);
+  });
+
+  clearKeyBtn.addEventListener("click", () => {
+    apiKeyInput.value = "";
+    chrome.storage.local.remove("geminiApiKey");
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, { action: "SAVE_API_KEY", apiKey: "" }, () => {
+        if (chrome.runtime.lastError) {}
+      });
+    }
+  });
+
+  // Global Shortcut Listener in Popup Window
+  document.addEventListener("keydown", (e) => {
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === 's') {
+        e.preventDefault();
+        if (!scanBtn.disabled) scanBtn.click();
+      } else if (k === 'a') {
+        e.preventDefault();
+        if (!aiBtn.disabled) aiBtn.click();
+      } else if (k === 't') {
+        e.preventDefault();
+        themeBtn.click();
+      }
+    }
+  });
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   if (!tab || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://")) {
@@ -36,26 +209,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  // Reflect stored enabled state immediately before content script responds
-  chrome.storage.local.get(['extensionEnabled'], (res) => {
-    updateToggleUI(res.extensionEnabled !== false);
-  });
-
   connectToContentScript();
 
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === "UPDATE_STATUS" && request.result) updateUI(request.result);
     if (request.action === "EXTENSION_TOGGLED") updateToggleUI(request.enabled);
+    if (request.action === "THEME_TOGGLED") applyTheme(request.theme);
   });
 
   enableToggle.addEventListener("click", () => {
-    const nowEnabled = enableToggle.classList.contains("off"); // flip
+    const nowEnabled = enableToggle.classList.contains("off");
     updateToggleUI(nowEnabled);
     chrome.tabs.sendMessage(tab.id, { action: "TOGGLE_EXTENSION", enabled: nowEnabled }, () => {
-      if (chrome.runtime.lastError) {} // content script may not be loaded
+      if (chrome.runtime.lastError) {
+        autoInjectAndConnect();
+      }
     });
   });
-
 
   scanBtn.addEventListener("click", () => {
     scanBtn.disabled = true;
@@ -63,7 +233,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     chrome.tabs.sendMessage(tab.id, { action: "SCAN_NAMES" }, (response) => {
       if (chrome.runtime.lastError || !response) {
-        setDisconnectedState();
+        autoInjectAndConnect();
       } else if (response.result) {
         updateUI(response.result);
       }
@@ -79,20 +249,71 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
+  aiBtn.addEventListener("click", () => {
+    aiBtn.disabled = true;
+    aiBtn.innerHTML = '<div class="spinner"></div> AI Verifying...';
+
+    chrome.tabs.sendMessage(tab.id, { action: "VERIFY_AI" }, (response) => {
+      if (chrome.runtime.lastError || !response) {
+        autoInjectAndConnect();
+      } else if (response.aiResult) {
+        renderAIResult(response.aiResult);
+      }
+      setTimeout(() => {
+        aiBtn.disabled = false;
+        aiBtn.innerHTML = '✨ Verify AI';
+      }, 500);
+    });
+  });
+
   function updateToggleUI(enabled) {
     enableToggle.className = `toggle-pill ${enabled ? "on" : "off"}`;
     enableToggle.innerText = enabled ? "ON" : "OFF";
-    if (!enabled) scanBtn.disabled = true;
+  }
+
+  function autoInjectAndConnect() {
+    if (!tab || !tab.id || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://")) {
+      setDisconnectedState();
+      return;
+    }
+
+    monitoringStatus.className = "badge inactive";
+    statusText.innerText = "Connecting...";
+
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content.js"]
+    }, () => {
+      if (chrome.runtime.lastError) {
+        setDisconnectedState();
+      } else {
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tab.id, { action: "GET_STATUS" }, (response) => {
+            if (!chrome.runtime.lastError && response) {
+              setConnectedState();
+              updateToggleUI(response.extensionEnabled !== false);
+              if (response.theme) applyTheme(response.theme);
+              if (response.result) updateUI(response.result);
+              if (response.aiResult) renderAIResult(response.aiResult);
+            } else {
+              setDisconnectedState();
+            }
+          });
+        }, 300);
+      }
+    });
   }
 
   function connectToContentScript() {
     chrome.tabs.sendMessage(tab.id, { action: "GET_STATUS" }, (response) => {
       if (chrome.runtime.lastError || !response) {
-        setDisconnectedState();
+        autoInjectAndConnect();
       } else {
         setConnectedState();
         updateToggleUI(response.extensionEnabled !== false);
+        if (response.theme) applyTheme(response.theme);
         if (response.result) updateUI(response.result);
+        if (response.aiResult) renderAIResult(response.aiResult);
       }
     });
   }
@@ -107,20 +328,28 @@ document.addEventListener("DOMContentLoaded", async () => {
     monitoringStatus.className = "badge inactive";
     statusText.innerText = "Inactive";
     contentContainer.classList.add("visible");
-    scanBtn.disabled = true;
     valProfile.innerText = "N/A";
     valCount.innerText = valMatch.innerText = valPartial.innerText = valMismatch.innerText = "0";
-    resultIcon.innerText = "⚠️";
-    resultText.innerText = "Cannot scan this page";
+    resultIcon.innerText = "🔌";
+    resultText.innerText = "Click Badge to Reconnect";
     resultText.className = "result-label none";
-    resultSub.innerText = "";
+    resultSub.innerText = "Auto-reconnecting scanner...";
     partialPanel.classList.remove("visible");
+    aiBox.classList.remove("visible");
     setPANDisplay(null, null, null);
     setAccountIDsDisplay([], null);
   }
 
+  function renderAIResult(res) {
+    if (!res) { aiBox.classList.remove("visible"); return; }
+    aiBox.classList.add("visible");
+    const vColor = res.verdict === "MATCH" ? "var(--success)" : res.verdict === "PARTIAL" ? "var(--warning)" : "var(--danger)";
+    aiVerdict.innerText = `${res.verdict} (${res.confidence || 90}%)`;
+    aiVerdict.style.color = vColor;
+    aiReason.innerText = res.reason || "AI analysis completed.";
+  }
+
   function updateUI(data) {
-    // ── Name check section ──────────────────────
     valProfile.innerText = data.profileName || "Not found";
     valProfile.title     = data.profileName || "";
     valCount.innerText   = data.count       ?? "0";
@@ -172,10 +401,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       partialPanel.classList.remove("visible");
     }
 
-    // ── PAN section ─────────────────────────────
     setPANDisplay(data.profilePAN, data.bankPAN, data.panResult);
-
-    // ── Account IDs list ─────────────────────────
     setAccountIDsDisplay(data.statements || [], data.bankAccountID);
   }
 
@@ -208,7 +434,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   function setAccountIDsDisplay(statements, fallbackID) {
     acctIdsList.innerHTML = "";
 
-    // Build rows from per-statement data when available
     const rows = statements.length > 0
       ? statements.map(st => ({
           index:     st.index,

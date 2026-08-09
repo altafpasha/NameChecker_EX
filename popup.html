@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <title>NameCheck</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-    :root {
+    :root[data-theme="dark"], :root {
       --bg:      #0a0b12;
       --card:    #13151f;
       --card2:   #181a26;
@@ -21,6 +21,21 @@
       --danger:  #ef4444;
     }
 
+    :root[data-theme="light"] {
+      --bg:      #f8fafc;
+      --card:    #ffffff;
+      --card2:   #f1f5f9;
+      --border:  #e2e8f0;
+      --border2: #cbd5e1;
+      --text:    #0f172a;
+      --muted:   #64748b;
+      --muted2:  #94a3b8;
+      --accent:  #2563eb;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger:  #dc2626;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -30,6 +45,7 @@
       width: 310px;
       padding: 14px;
       font-size: 13px;
+      transition: background .2s, color .2s;
     }
 
     /* ── Header ── */
@@ -38,18 +54,38 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 6px;
     }
     .logo {
       font-size: 13px; font-weight: 700;
       display: flex; align-items: center; gap: 7px;
       letter-spacing: .01em;
+      flex-shrink: 0;
     }
     .shield { width: 19px; height: 19px; }
+
+    .header-actions {
+      display: flex; align-items: center; gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .icon-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 24px; height: 24px;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 11px;
+      transition: all .15s;
+    }
+    .icon-btn:hover { background: var(--card2); border-color: var(--muted2); }
 
     .badge {
       display: flex; align-items: center; gap: 5px;
       font-size: 10px; font-weight: 600;
-      padding: 3px 9px; border-radius: 20px; border: 1px solid;
+      padding: 3px 8px; border-radius: 20px; border: 1px solid;
       letter-spacing: .02em;
     }
     .badge.active   { background: rgba(34,197,94,.1);  color: var(--success); border-color: rgba(34,197,94,.25); }
@@ -57,7 +93,7 @@
 
     .toggle-pill {
       font-size: 9px; font-weight: 700; letter-spacing: .05em;
-      padding: 3px 9px; border-radius: 20px; cursor: pointer;
+      padding: 3px 8px; border-radius: 20px; cursor: pointer;
       transition: all .2s; border: 1px solid; font-family: inherit;
     }
     .toggle-pill.on  { background: rgba(34,197,94,.12); color: #4ade80; border-color: rgba(34,197,94,.28); }
@@ -97,7 +133,7 @@
       text-overflow: ellipsis; text-align: right;
     }
 
-    /* ── Stat grid (3 cols) ── */
+    /* ── Stat grid ── */
     .stat-grid {
       display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
     }
@@ -125,7 +161,7 @@
       letter-spacing: .08em; color: #fbbf24; margin-bottom: 5px;
     }
     .fn-diff { display: flex; align-items: center; gap: 6px; }
-    .fn-chip { background: rgba(255,255,255,.07); color: rgba(255,255,255,.75); padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; }
+    .fn-chip { background: var(--card2); color: var(--text); padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; }
     .fn-sep  { color: var(--muted2); font-size: 13px; }
 
     /* ── Result banner ── */
@@ -144,25 +180,29 @@
     .result-label.none     { color: var(--muted);   }
     .result-sub  { font-size: 10px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* ── Scan count row ── */
+    /* ── AI Result Box ── */
+    .ai-box {
+      margin-top: 9px; padding: 8px 10px; border-radius: 8px;
+      background: rgba(147,51,234,.08); border: 1px solid rgba(147,51,234,.25);
+      display: none;
+    }
+    .ai-box.visible { display: block; }
+    .ai-box-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+    .ai-box-title { font-size: 9px; font-weight: 700; color: #c084fc; letter-spacing: .05em; }
+    .ai-box-verdict { font-size: 9px; font-weight: 700; }
+    .ai-box-reason { font-size: 10px; color: var(--text); line-height: 1.35; }
+
     .scan-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0 0; }
     .scan-label { color: var(--muted); font-size: 10px; }
     .scan-value { font-weight: 600; font-size: 11px; }
 
-    /* ── Section divider ── */
     .sec-divider { height: 1px; background: var(--border2); margin: 9px 0; }
-
-    /* ── Section title ── */
     .sec-title {
       font-size: 9px; font-weight: 700; text-transform: uppercase;
       letter-spacing: .08em; color: var(--muted); margin-bottom: 8px;
     }
 
-    /* ── PAN row ── */
-    .pan-row {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 4px 0;
-    }
+    .pan-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
     .pan-key   { color: var(--muted); font-size: 10px; flex-shrink: 0; width: 52px; }
     .pan-val   { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--text); }
 
@@ -176,13 +216,10 @@
     .pan-badge.mismatch { color: var(--danger);  background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.25); }
     .pan-badge.none     { color: var(--muted);   background: transparent;         border-color: var(--border); }
 
-    .pan-partial-info {
-      font-size: 9px; color: var(--muted); margin-top: 3px; display: none;
-    }
+    .pan-partial-info { font-size: 9px; color: var(--muted); margin-top: 3px; display: none; }
     .pan-partial-info.visible { display: block; }
     .pan-highlight { color: #fbbf24; font-weight: 700; }
 
-    /* ── Account IDs list ── */
     .acct-id-item {
       display: flex; align-items: center; justify-content: space-between;
       padding: 5px 0; gap: 4px;
@@ -210,19 +247,36 @@
       color: #4ade80;
     }
 
-    /* ── Button ── */
+    .btn-row { display: flex; gap: 6px; margin-top: 8px; }
+
     .btn {
-      width: 100%; background: var(--accent); color: #fff;
+      flex: 1; background: var(--accent); color: #fff;
       border: none; border-radius: 8px; padding: 9px;
-      font-size: 12px; font-weight: 600; font-family: inherit;
+      font-size: 11px; font-weight: 600; font-family: inherit;
       cursor: pointer; display: flex; align-items: center;
-      justify-content: center; gap: 6px;
+      justify-content: center; gap: 5px;
       transition: background .15s, transform .1s, opacity .15s;
-      letter-spacing: .01em;
     }
     .btn:hover:not(:disabled) { background: #2563eb; }
     .btn:active:not(:disabled){ transform: scale(.98); }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn-ai {
+      background: linear-gradient(135deg, #a855f7, #7e22ce);
+    }
+    .btn-ai:hover:not(:disabled) { background: linear-gradient(135deg, #9333ea, #6b21a8); }
+
+    .kbd-badge {
+      font-size: 8px;
+      opacity: .8;
+      background: rgba(255,255,255,.18);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 3px;
+      padding: 1px 4px;
+      margin-left: 3px;
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
 
     .spinner {
       width: 12px; height: 12px;
@@ -236,6 +290,29 @@
 
     #content-container { opacity: 0; transition: opacity .25s; }
     #content-container.visible { opacity: 1; }
+
+    /* ── Settings Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      backdrop-filter: blur(4px); z-index: 100;
+      display: none; align-items: center; justify-content: center;
+      padding: 14px;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; width: 100%; padding: 14px;
+      box-shadow: 0 10px 25px rgba(0,0,0,.3);
+    }
+    .modal-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .modal-sub { font-size: 10px; color: var(--muted); margin-bottom: 12px; line-height: 1.35; }
+    .input-field {
+      width: 100%; background: var(--card2); border: 1px solid var(--border2);
+      color: var(--text); padding: 8px 10px; border-radius: 6px;
+      font-size: 11px; font-family: inherit; margin-bottom: 8px;
+    }
+    .input-field:focus { outline: none; border-color: var(--accent); }
+    .modal-badge { font-size: 9px; font-weight: 600; color: #a855f7; background: rgba(168,85,247,.1); border: 1px solid rgba(168,85,247,.25); padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -250,7 +327,9 @@
       </svg>
       NameCheck
     </div>
-    <div style="display:flex;align-items:center;gap:6px;">
+    <div class="header-actions">
+      <button class="icon-btn" id="themeBtn" title="Toggle Light/Dark Theme">☀️</button>
+      <button class="icon-btn" id="settingsBtn" title="AI Settings">⚙️</button>
       <div class="badge inactive" id="monitoring-status">
         <div class="dot"></div>
         <span id="status-text">Connecting</span>
@@ -261,7 +340,7 @@
 
   <div id="content-container">
 
-    <!-- ── Card 1: Name Check ── -->
+    <!-- Card 1: Name Check -->
     <div class="card">
       <div class="profile-row">
         <span class="profile-label">Profile</span>
@@ -283,7 +362,7 @@
         </div>
       </div>
 
-      <!-- First-name diff panel (partial only) -->
+      <!-- First-name diff panel -->
       <div class="partial-panel" id="partial-panel">
         <div class="partial-panel-title">First name differs</div>
         <div class="fn-diff">
@@ -302,18 +381,24 @@
         </div>
       </div>
 
+      <!-- AI Result Box -->
+      <div class="ai-box" id="ai-box">
+        <div class="ai-box-head">
+          <span class="ai-box-title">✨ AI VERIFICATION</span>
+          <span class="ai-box-verdict" id="ai-verdict">—</span>
+        </div>
+        <div class="ai-box-reason" id="ai-reason">—</div>
+      </div>
+
       <div class="scan-row">
         <span class="scan-label">Accounts scanned</span>
         <span class="scan-value" id="val-count">0</span>
       </div>
     </div>
 
-    <!-- ── Card 2: PAN + Account ID ── -->
+    <!-- Card 2: PAN + Account ID -->
     <div class="card">
-
-      <!-- PAN section -->
       <div class="sec-title">PAN Verification</div>
-
       <div class="pan-row">
         <span class="pan-key">Profile</span>
         <span class="pan-val" id="val-profile-pan">—</span>
@@ -331,32 +416,68 @@
         <span class="pan-highlight" id="pan-match-part">—</span>
       </div>
 
-      <!-- Divider -->
       <div class="sec-divider"></div>
 
-      <!-- Account IDs list (populated by JS) -->
       <div>
         <div class="sec-title" style="margin-bottom:5px;">Bank Account IDs</div>
         <div id="acct-ids-list">
           <span class="acct-item-id dim">—</span>
         </div>
       </div>
-
     </div>
 
-    <button class="btn" id="scanBtn">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
-        <path d="M21 3v5h-5"/>
-      </svg>
-      Force Scan
-    </button>
+    <div class="btn-row">
+      <button class="btn" id="scanBtn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        Force Scan <span class="kbd-badge">Alt+S</span>
+      </button>
+      <button class="btn btn-ai" id="aiBtn">
+        ✨ Verify AI <span class="kbd-badge">Alt+A</span>
+      </button>
+    </div>
     
     <div style="text-align: center; margin-top: 12px; font-size: 10px; color: var(--muted); font-weight: 500; letter-spacing: 0.02em;">
       Developed by Altaf
     </div>
 
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-card">
+      <div class="modal-title">
+        <span>AI Engine & Settings</span>
+        <button class="icon-btn" id="closeModalBtn" style="border:none;">✕</button>
+      </div>
+      <div class="modal-sub">Choose your preferred AI Engine and enter optional API keys. Encrypted and stored locally.</div>
+
+      <div style="margin-bottom:8px;">
+        <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">AI Provider</label>
+        <select class="input-field" id="providerSelect" style="cursor:pointer;margin-bottom:6px;">
+          <option value="gemini">Google Gemini (Ultra-Fast Free Tier)</option>
+          <option value="huggingface">Hugging Face SmolLM-135M (<300MB Light LLM)</option>
+          <option value="gemma">Hugging Face Gemma-2B Model</option>
+          <option value="local">Local Indian NLP Engine (Zero API Key)</option>
+        </select>
+      </div>
+
+      <div class="modal-badge" id="modalBadge">SmolLM-135M Instruct (<300MB Footprint)</div>
+      <input type="password" class="input-field" id="apiKeyInput" placeholder="Enter API Key (Gemini or HuggingFace)..." />
+
+      <div style="margin-top:8px;margin-bottom:8px;">
+        <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">🔒 Encrypted Target Domains / URLs</label>
+        <div style="display:flex;gap:4px;align-items:center;">
+          <input type="password" class="input-field" id="allowedDomainsInput" placeholder="Add multiple URLs (e.g. ibnbfc.in, mybank.com, localhost)" style="margin-bottom:0;" />
+          <button class="icon-btn" id="toggleDomainVisibilityBtn" title="Show/Hide Saved URLs" style="width:30px;height:30px;flex-shrink:0;font-size:12px;">👁️</button>
+        </div>
+        <div style="font-size:9px;color:var(--muted);line-height:1.35;margin-top:4px;">Supports multiple URLs (comma-separated). Saved URLs are encrypted and masked as asterisks (*).</div>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <button class="btn" id="saveKeyBtn">Save Settings</button>
+        <button class="btn" id="clearKeyBtn" style="background:var(--card2);color:var(--text);border:1px solid var(--border);">Clear</button>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>
