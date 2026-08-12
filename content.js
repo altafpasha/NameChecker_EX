@@ -100,6 +100,42 @@ chrome.storage.local.get(['savedProfileName', 'savedProfilePAN', 'extensionEnabl
   if (res.allowedDomains) allowedDomainsEncrypted = res.allowedDomains;
 });
 
+function stopAllScanning() {
+  clearTimeout(scanTimeout);
+  clearTimeout(selfHealingTimer);
+  clearTimeout(mismatchSettlingTimer);
+  if (mutationObserverInstance) {
+    mutationObserverInstance.disconnect();
+    mutationObserverInstance = null;
+  }
+  isScanning = false;
+  removeWidget();
+  clearHighlights();
+  lastScanResult = { scanned: false, extensionEnabled: false, profileName: "Extension Disabled" };
+}
+
+// Real-time storage change listener across all tabs
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local') {
+    if (changes.extensionEnabled !== undefined) {
+      extensionEnabled = changes.extensionEnabled.newValue !== false;
+      if (!extensionEnabled) {
+        stopAllScanning();
+      } else {
+        selfHealingRetryCount = 0;
+        initScanner();
+      }
+    }
+    if (changes.aiProvider) {
+      aiProvider = changes.aiProvider.newValue || 'gemini';
+    }
+    if (changes.theme) {
+      currentTheme = changes.theme.newValue || 'dark';
+      if (lastScanResult && lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    }
+  }
+});
+
 // Register message listener immediately so popup requests are handled instantly on injection
 if (!window._nameCheckerMessageListenerSet) {
   window._nameCheckerMessageListenerSet = true;
@@ -109,10 +145,10 @@ if (!window._nameCheckerMessageListenerSet) {
       runScan(true);
       sendResponse({ status: "scanned", result: lastScanResult });
     } else if (request.action === "TOGGLE_EXTENSION") {
-      extensionEnabled = request.enabled;
+      extensionEnabled = request.enabled !== false;
       chrome.storage.local.set({ extensionEnabled });
-      if (!extensionEnabled) { removeWidget(); clearHighlights(); }
-      else { selfHealingRetryCount = 0; runScan(true); }
+      if (!extensionEnabled) { stopAllScanning(); }
+      else { selfHealingRetryCount = 0; initScanner(); }
       sendResponse({ enabled: extensionEnabled });
     } else if (request.action === "GET_STATUS") {
       if (!lastScanResult.scanned && extensionEnabled) {
@@ -316,6 +352,19 @@ function runScan(_force = false) {
 
   try {
     clearHighlights();
+    if (!_force || window.location.href !== lastScannedUrl) {
+      lastScanResult = {
+        scanned: true,
+        isVerifying: true,
+        profileName: "Scanning...",
+        count: 0, matchCount: 0, partialCount: 0, mismatchCount: 0,
+        mismatchFound: false, noElements: false,
+        details: [], statements: [],
+        profilePAN: savedProfilePAN, bankPAN: null, panResult: null, bankAccountID: null
+      };
+      aiVerificationResult = null;
+    }
+
     const allNodes = getTargetDOMNodes();
 
     const activeTab = getActiveTab(allNodes);
@@ -352,10 +401,9 @@ function runScan(_force = false) {
         details: [], statements: [],
         profilePAN: savedProfilePAN, bankPAN: null, panResult: null, bankAccountID: null
       };
-      if (savedProfilePAN) showPersistentWidget(lastScanResult);
+      if (savedProfilePAN && statements.length > 0) showPersistentWidget(lastScanResult);
       else removeWidget();
       chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
-      scheduleSelfHealingRetry();
       return;
     }
 
@@ -1166,9 +1214,12 @@ async function handleAIVerificationRequest() {
     return res;
   }
 
-  const rawKey = decryptApiKey(geminiApiKeyEncrypted);
-  const profileName = lastScanResult.profileName;
-  const statements = lastScanResult.statements || [];
+  if (aiProvider === 'disabled') {
+    const res = { verdict: "OFF", confidence: 0, reason: "AI Verification is turned OFF in Settings." };
+    aiVerificationResult = res;
+    if (lastScanResult && lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    return res;
+  }
 
   // Local or missing API Key processing across all statements
   if (aiProvider === 'local' || !rawKey) {
@@ -1474,28 +1525,32 @@ function injectNCStyles() {
     .nc-ai-btn:hover { background: rgba(147,51,234,.25) !important; border-color: rgba(168,85,247,.4) !important; }
     #nc-widget * { box-sizing:border-box; font-family:-apple-system,'Inter',system-ui,sans-serif !important; }
 
-    /* Theme - Dark */
+    /* Glassmorphism Theme - Dark */
     #nc-widget.nc-theme-dark {
-      background: rgba(10,11,18,.97) !important;
-      color: #eef0f6 !important;
-      border: 1px solid rgba(255,255,255,.09) !important;
-      box-shadow: 0 14px 44px rgba(0,0,0,.6) !important;
+      background: rgba(11, 14, 25, 0.85) !important;
+      color: #f1f5f9 !important;
+      border: 1px solid rgba(255, 255, 255, 0.16) !important;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.2) !important;
+      backdrop-filter: blur(28px) saturate(190%) !important;
+      -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
     }
     #nc-widget.nc-theme-dark #nc-w-head {
-      background: rgba(255,255,255,.035) !important;
-      border-bottom: 1px solid rgba(255,255,255,.07) !important;
+      background: rgba(255, 255, 255, 0.05) !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.09) !important;
     }
 
-    /* Theme - Light */
+    /* Glassmorphism Theme - Light */
     #nc-widget.nc-theme-light {
-      background: rgba(255,255,255,.98) !important;
+      background: rgba(255, 255, 255, 0.86) !important;
       color: #0f172a !important;
-      border: 1px solid rgba(0,0,0,.12) !important;
-      box-shadow: 0 14px 44px rgba(15,23,42,.15) !important;
+      border: 1px solid rgba(203, 213, 225, 0.95) !important;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.14), inset 0 1px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.6) !important;
+      backdrop-filter: blur(28px) saturate(190%) !important;
+      -webkit-backdrop-filter: blur(28px) saturate(190%) !important;
     }
     #nc-widget.nc-theme-light #nc-w-head {
-      background: rgba(241,245,249,1) !important;
-      border-bottom: 1px solid rgba(0,0,0,.08) !important;
+      background: rgba(241, 245, 249, 0.92) !important;
+      border-bottom: 1px solid rgba(203, 213, 225, 0.9) !important;
     }
     #nc-widget.nc-theme-light span { color: inherit; }
   `;

@@ -60,16 +60,30 @@ document.addEventListener("DOMContentLoaded", async () => {
   const modalBadge     = document.getElementById("modalBadge");
 
   function updateModalBadge(provider) {
-    if (provider === "huggingface") {
+    if (provider === "disabled") {
+      modalBadge.innerText = "AI Verification OFF (Disabled)";
+      apiKeyInput.placeholder = "AI is Disabled in Settings";
+      apiKeyInput.disabled = true;
+      aiBtn.disabled = true;
+      aiBtn.title = "AI Verification is Disabled in Settings";
+    } else if (provider === "huggingface") {
+      apiKeyInput.disabled = false;
+      aiBtn.disabled = false;
       modalBadge.innerText = "SmolLM-135M Instruct (Micro LLM ~270MB Size)";
       apiKeyInput.placeholder = "Enter HuggingFace Token (Optional)...";
     } else if (provider === "gemma") {
+      apiKeyInput.disabled = false;
+      aiBtn.disabled = false;
       modalBadge.innerText = "Google Gemma-2B Instruct Model";
       apiKeyInput.placeholder = "Enter HuggingFace Token...";
     } else if (provider === "local") {
+      apiKeyInput.disabled = false;
+      aiBtn.disabled = false;
       modalBadge.innerText = "Local Indian NLP Classifier (Zero API Key)";
       apiKeyInput.placeholder = "No API Key required for Local Engine";
     } else {
+      apiKeyInput.disabled = false;
+      aiBtn.disabled = false;
       modalBadge.innerText = "Google Gemini (Ultra-Fast Free Tier)";
       apiKeyInput.placeholder = "Enter API Key...";
     }

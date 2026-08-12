@@ -7,33 +7,35 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
     :root[data-theme="dark"], :root {
-      --bg:      #0a0b12;
-      --card:    #13151f;
-      --card2:   #181a26;
-      --border:  #22263a;
-      --border2: #1e2133;
-      --text:    #eef0f6;
-      --muted:   #5a6380;
-      --muted2:  #3e4560;
+      --bg:      #0b0d17;
+      --card:    rgba(19, 23, 36, 0.85);
+      --card2:   rgba(26, 32, 50, 0.75);
+      --border:  rgba(255, 255, 255, 0.14);
+      --border2: rgba(255, 255, 255, 0.08);
+      --text:    #f1f5f9;
+      --muted:   #94a3b8;
+      --muted2:  #64748b;
       --accent:  #3b82f6;
       --success: #22c55e;
       --warning: #f59e0b;
       --danger:  #ef4444;
+      --glass-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     }
 
     :root[data-theme="light"] {
-      --bg:      #f8fafc;
-      --card:    #ffffff;
-      --card2:   #f1f5f9;
-      --border:  #e2e8f0;
-      --border2: #cbd5e1;
+      --bg:      #f1f5f9;
+      --card:    rgba(255, 255, 255, 0.88);
+      --card2:   rgba(241, 245, 249, 0.95);
+      --border:  rgba(203, 213, 225, 0.95);
+      --border2: rgba(226, 232, 240, 0.9);
       --text:    #0f172a;
-      --muted:   #64748b;
-      --muted2:  #94a3b8;
+      --muted:   #475569;
+      --muted2:  #64748b;
       --accent:  #2563eb;
       --success: #16a34a;
       --warning: #d97706;
       --danger:  #dc2626;
+      --glass-shadow: 0 12px 32px rgba(15, 23, 42, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.9);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -112,9 +114,12 @@
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 11px;
-      padding: 11px 12px;
-      margin-bottom: 9px;
+      box-shadow: var(--glass-shadow);
+      border-radius: 13px;
+      padding: 12px 13px;
+      margin-bottom: 10px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
     }
 
     /* ── Profile row ── */
@@ -454,8 +459,9 @@
       <div style="margin-bottom:8px;">
         <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">AI Provider</label>
         <select class="input-field" id="providerSelect" style="cursor:pointer;margin-bottom:6px;">
+          <option value="disabled">Disabled (Turn OFF AI Verification)</option>
           <option value="gemini">Google Gemini (Ultra-Fast Free Tier)</option>
-          <option value="huggingface">Hugging Face SmolLM-135M (<300MB Light LLM)</option>
+          <option value="huggingface">Hugging Face SmolLM-135M (&lt;300MB Light LLM)</option>
           <option value="gemma">Hugging Face Gemma-2B Model</option>
           <option value="local">Local Indian NLP Engine (Zero API Key)</option>
         </select>
