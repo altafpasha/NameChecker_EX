@@ -394,6 +394,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       resultBox.style.background  = "rgba(239,68,68,.05)";
       partialPanel.classList.remove("visible");
 
+    } else if (data.isVerifying) {
+      resultIcon.innerText = "⏳";
+      resultText.innerText = "Analyzing Name Compatibility...";
+      resultText.className = "result-label partial";
+      resultSub.innerText  = "Verifying match details on dashboard...";
+      resultBox.style.borderColor = "rgba(59,130,246,.3)";
+      resultBox.style.background  = "rgba(59,130,246,.05)";
+      partialPanel.classList.remove("visible");
+
     } else if (!data.scanned || data.noElements) {
       resultIcon.innerText = "🔍";
       resultText.innerText = data.noElements ? "No accounts found" : "Waiting for data";

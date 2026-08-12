@@ -151,10 +151,21 @@ if (!window._nameCheckerMessageListenerSet) {
   });
 }
 
+// Fast, targeted DOM node query to prevent dashboard slowdowns
+function getTargetDOMNodes() {
+  try {
+    return Array.from(document.querySelectorAll(
+      'span, td, th, div, input, p, b, strong, label, a, h1, h2, h3, h4, h5, h6, [role="gridcell"]'
+    ));
+  } catch (e) {
+    return [];
+  }
+}
+
 // Quick DOM probe: profile-name labels
-function peekProfileName() {
+function peekProfileName(passedNodes) {
   const labels = ["nsdl name", "nsdl pan display name", "profile name", "applicant name", "customer name"];
-  const all = document.querySelectorAll("*");
+  const all = passedNodes || getTargetDOMNodes();
   for (let i = 0; i < all.length; i++) {
     const orig = all[i].innerText?.trim() || "";
     const text = orig.toLowerCase().replace(/[:\-]/g, "").replace(/\s+/g, " ");
@@ -168,9 +179,9 @@ function peekProfileName() {
 }
 
 // Quick DOM probe: bank holder name labels
-function peekBankHolderName() {
+function peekBankHolderName(passedNodes) {
   const labels = ["acc holder's name", "acc holder", "account holder name", "account holder's name", "account name", "beneficiary name"];
-  const all = document.querySelectorAll("*");
+  const all = passedNodes || getTargetDOMNodes();
   for (let i = 0; i < all.length; i++) {
     const orig = all[i].innerText?.trim() || "";
     const text = orig.toLowerCase().replace(/[:\-]/g, "").replace(/\s+/g, " ");
@@ -200,19 +211,20 @@ if (document.readyState === 'complete') { _startScanner(); }
 else { window.addEventListener('load', _startScanner); }
 
 function initScanner() {
+  if (!extensionEnabled || !isDomainAllowed()) return;
   observeChanges();
   runScan();
 }
 
 // Progressive Self-Healing Retry
 function scheduleSelfHealingRetry() {
-  if (selfHealingRetryCount >= 4 || !extensionEnabled) return;
-  const delays = [600, 1800, 3500, 6000];
-  const delay = delays[selfHealingRetryCount] || 6000;
+  if (selfHealingRetryCount >= 3 || !extensionEnabled || !isDomainAllowed()) return;
+  const delays = [800, 2200, 4500];
+  const delay = delays[selfHealingRetryCount] || 4500;
   selfHealingRetryCount++;
   clearTimeout(selfHealingTimer);
   selfHealingTimer = setTimeout(() => {
-    if (extensionEnabled) {
+    if (extensionEnabled && isDomainAllowed()) {
       runScan(true);
     }
   }, delay);
@@ -221,26 +233,36 @@ function scheduleSelfHealingRetry() {
 // ─────────────────────────────────────────────
 // Re-scan on DOM changes (debounced)
 // ─────────────────────────────────────────────
+let mutationObserverInstance = null;
+
 function observeChanges() {
-  const observer = new MutationObserver(() => {
-    if (isScanning || !extensionEnabled) return;
+  if (!extensionEnabled || !isDomainAllowed()) {
+    if (mutationObserverInstance) { mutationObserverInstance.disconnect(); mutationObserverInstance = null; }
+    return;
+  }
+  if (mutationObserverInstance) return;
+
+  mutationObserverInstance = new MutationObserver(() => {
+    if (isScanning || !extensionEnabled || !isDomainAllowed()) return;
     clearTimeout(scanTimeout);
     scanTimeout = setTimeout(() => {
+      if (!isDomainAllowed() || !extensionEnabled) return;
       if (!lastScanResult.scanned) { runScan(); return; }
       if (window.location.href !== lastScannedUrl) { runScan(); return; }
-      const pProfile = peekProfileName();
+      const nodes = getTargetDOMNodes();
+      const pProfile = peekProfileName(nodes);
       if (pProfile && pProfile !== lastScannedProfileSig) { runScan(); return; }
-      const pBank = peekBankHolderName();
+      const pBank = peekBankHolderName(nodes);
       if (pBank && pBank !== lastScannedBankSig) { runScan(); return; }
-    }, 1000);
+    }, 2500);
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  mutationObserverInstance.observe(document.body || document.documentElement, { childList: true, subtree: true });
 }
 
 // ─────────────────────────────────────────────
 // TAB DETECTION
 // ─────────────────────────────────────────────
-function getActiveTab() {
+function getActiveTab(passedNodes) {
   const tabCandidates = Array.from(document.querySelectorAll(
     'button, [role="tab"], .tab, [class*="tab"], nav a'
   ));
@@ -259,7 +281,7 @@ function getActiveTab() {
       if (text.includes("emp"))     return "empinfo";
     }
   }
-  const pageText = document.body.innerText || "";
+  const pageText = document.body?.innerText || "";
   if (pageText.includes("NSDL Name") || pageText.includes("NSDL PAN Display Name") ||
       pageText.includes("NSDL PAN - Aadhaar linked") || pageText.includes("Govt ID No"))
     return "profile";
@@ -272,6 +294,8 @@ function getActiveTab() {
 // ─────────────────────────────────────────────
 // MAIN SCAN
 // ─────────────────────────────────────────────
+let mismatchSettlingTimer = null;
+
 function runScan(_force = false) {
   if (isScanning || !extensionEnabled) return;
   if (!isDomainAllowed()) {
@@ -292,13 +316,14 @@ function runScan(_force = false) {
 
   try {
     clearHighlights();
+    const allNodes = getTargetDOMNodes();
 
-    const activeTab = getActiveTab();
+    const activeTab = getActiveTab(allNodes);
     let profileEl = null;
     let currentProfileName = null;
 
     if (activeTab === "profile") {
-      profileEl = findProfileNameInDOM();
+      profileEl = findProfileNameInDOM(allNodes);
       if (profileEl) {
         const extracted = (profileEl.tagName === 'INPUT' ? profileEl.value : profileEl.innerText)?.trim();
         if (extracted && isLikelyPersonName(extracted)) {
@@ -307,7 +332,7 @@ function runScan(_force = false) {
           chrome.storage.local.set({ savedProfileName: currentProfileName });
         }
       }
-      const pan = findProfilePAN();
+      const pan = findProfilePAN(allNodes);
       if (pan) {
         savedProfilePAN = pan;
         chrome.storage.local.set({ savedProfilePAN: pan });
@@ -316,7 +341,7 @@ function runScan(_force = false) {
 
     if (!currentProfileName) currentProfileName = savedProfileName;
 
-    const statements = findAllBankStatements();
+    const statements = findAllBankStatements(allNodes);
 
     if (!currentProfileName || statements.length === 0) {
       lastScanResult = {
@@ -361,12 +386,6 @@ function runScan(_force = false) {
         overallResult = 'mismatch';
       }
 
-      if (st.nameEl) {
-        if (overallResult === 'match')   highlight(st.nameEl, 'green');
-        else if (overallResult === 'partial') highlight(st.nameEl, 'orange');
-        else highlight(st.nameEl, 'red');
-      }
-
       if (overallResult === 'mismatch') mismatchFound = true;
       if (overallResult === 'partial')  partialCount++;
 
@@ -376,13 +395,10 @@ function runScan(_force = false) {
         nameResult, nameDetail, panResult,
         overallResult,
         needsManualCheck: nameDetail?.needsManualCheck || overallResult === 'mismatch',
-        copyEnabled: nameOk && panOk && !!st.accountID
+        copyEnabled: nameOk && panOk && !!st.accountID,
+        nameEl: st.nameEl
       });
     });
-
-    if (profileEl && activeTab === "profile") {
-      highlight(profileEl, mismatchFound ? "red" : partialCount > 0 ? "orange" : "green");
-    }
 
     const matchCount    = processedStatements.filter(s => s.overallResult === 'match').length;
     const mismatchCount = processedStatements.filter(s => s.overallResult === 'mismatch').length;
@@ -391,7 +407,7 @@ function runScan(_force = false) {
                 || processedStatements.find(s => s.overallResult === 'partial' && s.accountID)
                 || processedStatements.find(s => s.accountID);
 
-    lastScanResult = {
+    const scanData = {
       scanned: true, profileName: currentProfileName,
       count: statements.length,
       matchCount, partialCount, mismatchCount, mismatchFound,
@@ -403,6 +419,40 @@ function runScan(_force = false) {
       bankAccountID: bestSt?.accountID || null
     };
 
+    // Smooth mismatch loading buffer: when mismatch detected on initial unforced scan, show loading/verifying state first!
+    if (mismatchFound && !_force && (!lastScanResult.scanned || !lastScanResult.mismatchFound || lastScanResult.isVerifying)) {
+      lastScanResult = {
+        ...scanData,
+        isVerifying: true,
+        verifyingMessage: "Analyzing Name Compatibility..."
+      };
+      showPersistentWidget(lastScanResult);
+      chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
+
+      clearTimeout(mismatchSettlingTimer);
+      mismatchSettlingTimer = setTimeout(() => {
+        runScan(true);
+      }, 1200);
+      return;
+    }
+
+    lastScanResult = {
+      ...scanData,
+      isVerifying: false
+    };
+
+    processedStatements.forEach(st => {
+      if (st.nameEl) {
+        if (st.overallResult === 'match') highlight(st.nameEl, 'green');
+        else if (st.overallResult === 'partial') highlight(st.nameEl, 'orange');
+        else highlight(st.nameEl, 'red');
+      }
+    });
+
+    if (profileEl && activeTab === "profile") {
+      highlight(profileEl, mismatchFound ? "red" : partialCount > 0 ? "orange" : "green");
+    }
+
     lastScannedProfileSig = currentProfileName || null;
     lastScannedBankSig    = processedStatements[0]?.rawName || null;
     lastScannedUrl        = window.location.href;
@@ -410,7 +460,7 @@ function runScan(_force = false) {
     showPersistentWidget(lastScanResult);
     chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
 
-    if (mismatchFound) {
+    if (mismatchFound && !lastScanResult.isVerifying) {
       scheduleSelfHealingRetry();
     }
 
@@ -449,8 +499,8 @@ function isTightest(el, text) {
   return true;
 }
 
-function findProfileNameInDOM() {
-  const allNodes = Array.from(document.querySelectorAll("*"));
+function findProfileNameInDOM(passedNodes) {
+  const allNodes = passedNodes || getTargetDOMNodes();
   for (let i = 0; i < allNodes.length; i++) {
     const el = allNodes[i];
     const originalText = el.innerText?.trim() || "";
@@ -471,7 +521,7 @@ function findProfileNameInDOM() {
       if (isLikelyPersonName(nextText)) return nextEl;
     }
   }
-  for (const el of Array.from(document.querySelectorAll("*"))) {
+  for (const el of allNodes) {
     const text = (el.tagName === 'INPUT' ? el.value : el.innerText)?.trim();
     if (!text || !isTightest(el, text)) continue;
     const words = text.trim().split(/\s+/);
@@ -528,8 +578,8 @@ function isLikelyPersonName(text) {
 // ─────────────────────────────────────────────
 // BANK ACCOUNT HOLDER NAME FINDER
 // ─────────────────────────────────────────────
-function findBankAccountHolderNames() {
-  const allNodes = Array.from(document.querySelectorAll("*"));
+function findBankAccountHolderNames(passedNodes) {
+  const allNodes = passedNodes || getTargetDOMNodes();
   const bankElements = [];
   const bankLabels = [
     "acc holder's name","acc holder","account holder name",
@@ -559,8 +609,8 @@ function findBankAccountHolderNames() {
 // ─────────────────────────────────────────────
 // PAN EXTRACTION
 // ─────────────────────────────────────────────
-function findProfilePAN() {
-  const allNodes = Array.from(document.querySelectorAll("*"));
+function findProfilePAN(passedNodes) {
+  const allNodes = passedNodes || getTargetDOMNodes();
   const panLabels = ["pan no", "pan number"];
   for (let i = 0; i < allNodes.length; i++) {
     const el = allNodes[i];
@@ -579,8 +629,8 @@ function findProfilePAN() {
   return null;
 }
 
-function findBankPANAndAccountID() {
-  const allNodes = Array.from(document.querySelectorAll("*"));
+function findBankPANAndAccountID(passedNodes) {
+  const allNodes = passedNodes || getTargetDOMNodes();
   let bankPAN = null;
   let bankAccountID = null;
 
@@ -625,8 +675,8 @@ function findBankPANAndAccountID() {
 // ─────────────────────────────────────────────
 // MULTI-STATEMENT GROUPING
 // ─────────────────────────────────────────────
-function findAllBankStatements() {
-  const allNodes = Array.from(document.querySelectorAll("*"));
+function findAllBankStatements(passedNodes) {
+  const allNodes = passedNodes || getTargetDOMNodes();
 
   const sectionIdxs = [];
   for (let i = 0; i < allNodes.length; i++) {
@@ -1268,6 +1318,7 @@ function injectNCStyles() {
   const style = document.createElement('style');
   style.id = 'namecheck-styles';
   style.textContent = `
+    @keyframes _nc_spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
     @keyframes _nc_in  { from{transform:scale(.95) translateY(8px);opacity:0} to{transform:scale(1) translateY(0);opacity:1} }
     @keyframes _nc_out { from{transform:scale(1) translateY(0);opacity:1} to{transform:scale(.95) translateY(8px);opacity:0} }
     #nc-widget { animation: _nc_in .35s cubic-bezier(.16,1,.3,1) forwards; }
@@ -1377,19 +1428,28 @@ function showPersistentWidget(result) {
   const old = document.getElementById('nc-widget');
   if (old) { if (old._ncCleanup) old._ncCleanup(); old.remove(); }
 
-  const { matchCount = 0, partialCount = 0, mismatchFound = false,
+  const { matchCount = 0, partialCount = 0, mismatchFound = false, isVerifying = false,
           statements = [], count = 0 } = result;
 
   const isLight      = currentTheme === 'light';
   const total        = statements.length || count;
   const verifiedCnt  = matchCount + partialCount;
-  const summaryColor = mismatchFound ? '#ef4444' : partialCount > 0 ? '#f59e0b' : matchCount > 0 ? '#22c55e' : (isLight ? '#64748b' : 'rgba(255,255,255,.4)');
-  const summaryIcon  = mismatchFound ? '✕' : partialCount > 0 ? '~' : matchCount > 0 ? '✓' : '—';
-  const summaryLabel = total > 0 ? `${summaryIcon} ${verifiedCnt}/${total} verified` : 'No statements';
+  const summaryColor = isVerifying ? '#3b82f6' : mismatchFound ? '#ef4444' : partialCount > 0 ? '#f59e0b' : matchCount > 0 ? '#22c55e' : (isLight ? '#64748b' : 'rgba(255,255,255,.4)');
+  const summaryIcon  = isVerifying ? '<span style="display:inline-block;animation:_nc_spin .8s linear infinite;">⏳</span>' : mismatchFound ? '✕' : partialCount > 0 ? '~' : matchCount > 0 ? '✓' : '—';
+  const summaryLabel = isVerifying ? `${summaryIcon} Analyzing...` : (total > 0 ? `${summaryIcon} ${verifiedCnt}/${total} verified` : 'No statements');
 
   const copySVG = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 
-  const globalWarning = mismatchFound
+  const globalWarning = isVerifying
+    ? `<div style="background:rgba(59,130,246,.1);border-bottom:1px solid rgba(59,130,246,.22);
+        padding:6px 10px;display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;display:inline-block;animation:_nc_spin .8s linear infinite;color:#3b82f6;">⏳</span>
+        <div>
+          <span style="font-size:9px;font-weight:700;color:#3b82f6;letter-spacing:.04em;">ANALYZING COMPATIBILITY</span>
+          <span style="font-size:8px;color:${isLight ? '#1e40af' : 'rgba(59,130,246,.75)'};margin-left:5px;">verifying match details...</span>
+        </div>
+      </div>`
+    : mismatchFound
     ? `<div style="background:rgba(239,68,68,.1);border-bottom:1px solid rgba(239,68,68,.22);
         padding:6px 10px;display:flex;align-items:center;gap:6px;">
         <span style="font-size:11px;font-weight:800;color:#ef4444;">⚠</span>
