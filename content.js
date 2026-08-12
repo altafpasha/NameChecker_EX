@@ -1168,59 +1168,131 @@ async function handleAIVerificationRequest() {
 
   const rawKey = decryptApiKey(geminiApiKeyEncrypted);
   const profileName = lastScanResult.profileName;
-  const bankName = lastScanResult.statements[0]?.rawName || lastScanResult.statements[0]?.name || "N/A";
+  const statements = lastScanResult.statements || [];
 
-  if (aiProvider === 'local') {
-    const localEval = compareNamesDetailed(profileName, bankName);
+  // Local or missing API Key processing across all statements
+  if (aiProvider === 'local' || !rawKey) {
+    let hasMismatch = false;
+    let matchCount = 0;
+    let partialCount = 0;
+
+    statements.forEach(st => {
+      const localEval = compareNamesDetailed(profileName, st.rawName || st.name);
+      const verdict = localEval.result.toUpperCase();
+      st.aiResult = {
+        verdict,
+        confidence: localEval.confidence,
+        reason: `Local Indian NLP Engine (${localEval.confidence}% confidence)`
+      };
+
+      if (verdict === 'MATCH') {
+        st.overallResult = 'match';
+        st.needsManualCheck = false;
+        st.copyEnabled = true;
+        matchCount++;
+      } else if (verdict === 'PARTIAL') {
+        st.overallResult = 'partial';
+        st.needsManualCheck = localEval.confidence < 70;
+        st.copyEnabled = true;
+        partialCount++;
+      } else {
+        st.overallResult = 'mismatch';
+        st.needsManualCheck = true;
+        hasMismatch = true;
+      }
+    });
+
+    lastScanResult.matchCount = matchCount;
+    lastScanResult.partialCount = partialCount;
+    lastScanResult.mismatchCount = statements.length - (matchCount + partialCount);
+    lastScanResult.mismatchFound = hasMismatch;
+
+    const summaryVerdict = hasMismatch ? "MISMATCH" : partialCount > 0 ? "PARTIAL" : "MATCH";
     const res = {
-      verdict: localEval.result.toUpperCase(),
-      confidence: localEval.confidence,
-      reason: `Verified via Local Indian NLP Engine (${localEval.confidence}% confidence).`
+      verdict: summaryVerdict,
+      confidence: Math.round(statements.reduce((acc, s) => acc + (s.aiResult?.confidence || 80), 0) / statements.length),
+      reason: `Verified ${statements.length} statement${statements.length > 1 ? 's' : ''} via Local Indian NLP Engine.${!rawKey && aiProvider !== 'local' ? ' Add Gemini API Key in Settings for deep LLM reasoning.' : ''}`
     };
     aiVerificationResult = res;
-    if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+    showPersistentWidget(lastScanResult);
+    chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
     return res;
   }
 
+  // HuggingFace / Gemma processing
   if (aiProvider === 'huggingface' || aiProvider === 'gemma') {
     try {
       const modelName = aiProvider === 'gemma' ? 'google/gemma-2-2b-it' : 'HuggingFaceTB/SmolLM-135M-Instruct';
-      const res = await callHuggingFaceAI(profileName, bankName, modelName);
-      aiVerificationResult = res;
-      if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
-      return res;
-    } catch (err) {
-      const localEval = compareNamesDetailed(profileName, bankName);
+      let hasMismatch = false;
+      let matchCount = 0;
+      let partialCount = 0;
+
+      for (const st of statements) {
+        const hfRes = await callHuggingFaceAI(profileName, st.rawName || st.name, modelName);
+        st.aiResult = hfRes;
+        if (hfRes.verdict === 'MATCH') {
+          st.overallResult = 'match';
+          st.needsManualCheck = false;
+          st.copyEnabled = true;
+          matchCount++;
+        } else if (hfRes.verdict === 'PARTIAL') {
+          st.overallResult = 'partial';
+          st.needsManualCheck = false;
+          st.copyEnabled = true;
+          partialCount++;
+        } else {
+          st.overallResult = 'mismatch';
+          st.needsManualCheck = true;
+          hasMismatch = true;
+        }
+      }
+
+      lastScanResult.matchCount = matchCount;
+      lastScanResult.partialCount = partialCount;
+      lastScanResult.mismatchCount = statements.length - (matchCount + partialCount);
+      lastScanResult.mismatchFound = hasMismatch;
+
+      const summaryVerdict = hasMismatch ? "MISMATCH" : partialCount > 0 ? "PARTIAL" : "MATCH";
       const res = {
-        verdict: localEval.result.toUpperCase(),
-        confidence: localEval.confidence,
-        reason: `Hugging Face Note: ${err.message}. Evaluated using Local Indian NLP Engine.`
+        verdict: summaryVerdict,
+        confidence: Math.round(statements.reduce((acc, s) => acc + (s.aiResult?.confidence || 85), 0) / statements.length),
+        reason: `AI (${modelName.split("/").pop()}) verified ${statements.length} bank statement${statements.length > 1 ? 's' : ''}.`
       };
       aiVerificationResult = res;
-      if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+      showPersistentWidget(lastScanResult);
+      chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
       return res;
+    } catch (err) {
+      console.warn("HF AI Error, falling back to Local NLP:", err);
     }
   }
 
-  if (!rawKey) {
-    const localEval = compareNamesDetailed(profileName, bankName);
-    const res = {
-      verdict: localEval.result.toUpperCase(),
-      confidence: localEval.confidence,
-      reason: `Verified via Local Indian NLP Engine (${localEval.confidence}% confidence). Add API Key in Popup Settings for deep AI reasoning.`
-    };
-    aiVerificationResult = res;
-    if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
-    return res;
-  }
+  // Gemini API Multi-Statement Prompt
+  const statementListText = statements.map((st, i) =>
+    `Statement #${st.index || (i + 1)}: "${st.rawName || st.name}" (Account ID: ${st.accountID || 'N/A'})`
+  ).join("\n");
 
-  const prompt = `You are an expert Indian Identity & Name Matching system. Compare these two names and determine if they belong to the same person under Indian naming conventions (salutations, middle name omission, South Indian initials, phonetic variations, spelling variants).
+  const prompt = `You are an expert Indian Identity & Name Matching system. Compare the Profile Name with each Bank Statement Name under Indian naming conventions (salutations, middle name omission, South Indian initials, phonetic variations, spelling variants).
 
 Profile Name: "${profileName}"
-Bank Account Name: "${bankName}"
+
+Bank Statements to Verify:
+${statementListText}
 
 Respond ONLY with a valid JSON object matching this schema:
-{"verdict": "MATCH" | "PARTIAL" | "MISMATCH", "confidence": <number 0 to 100>, "reason": "<1 concise sentence explanation>"}`;
+{
+  "verdict": "MATCH" | "PARTIAL" | "MISMATCH",
+  "confidence": <number 0 to 100>,
+  "reason": "<1 concise summary sentence>",
+  "statementResults": [
+    {
+      "index": <number matching statement #>,
+      "verdict": "MATCH" | "PARTIAL" | "MISMATCH",
+      "confidence": <number 0 to 100>,
+      "reason": "<1 concise sentence explanation for this statement>"
+    }
+  ]
+}`;
 
   const MODELS = [
     "gemini-2.5-flash",
@@ -1235,7 +1307,7 @@ Respond ONLY with a valid JSON object matching this schema:
   for (const model of MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(rawKey)}`;
-      
+
       let response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1269,13 +1341,54 @@ Respond ONLY with a valid JSON object matching this schema:
       const parsed = parseAIResponseJSON(text);
       if (!parsed) continue;
 
+      let hasMismatch = false;
+      let matchCount = 0;
+      let partialCount = 0;
+
+      const stResults = parsed.statementResults || [];
+
+      statements.forEach((st, idx) => {
+        const itemRes = stResults.find(r => r.index === (st.index || idx + 1)) || stResults[idx];
+        const v = (itemRes?.verdict || parsed.verdict || "MATCH").toUpperCase();
+        st.aiResult = {
+          verdict: v,
+          confidence: itemRes?.confidence || parsed.confidence || 95,
+          reason: itemRes?.reason || parsed.reason || "Verified by Gemini AI."
+        };
+
+        if (v === 'MATCH') {
+          st.overallResult = 'match';
+          st.needsManualCheck = false;
+          st.copyEnabled = true;
+          matchCount++;
+          if (st.nameEl) highlight(st.nameEl, 'green');
+        } else if (v === 'PARTIAL') {
+          st.overallResult = 'partial';
+          st.needsManualCheck = false;
+          st.copyEnabled = true;
+          partialCount++;
+          if (st.nameEl) highlight(st.nameEl, 'orange');
+        } else {
+          st.overallResult = 'mismatch';
+          st.needsManualCheck = true;
+          hasMismatch = true;
+          if (st.nameEl) highlight(st.nameEl, 'red');
+        }
+      });
+
+      lastScanResult.matchCount = matchCount;
+      lastScanResult.partialCount = partialCount;
+      lastScanResult.mismatchCount = statements.length - (matchCount + partialCount);
+      lastScanResult.mismatchFound = hasMismatch;
+
       const res = {
-        verdict: (parsed.verdict || "MATCH").toUpperCase(),
+        verdict: hasMismatch ? "MISMATCH" : (parsed.verdict || (partialCount > 0 ? "PARTIAL" : "MATCH")).toUpperCase(),
         confidence: parsed.confidence || 95,
-        reason: parsed.reason || `AI (${model}) confirmed name compatibility.`
+        reason: parsed.reason || `AI (${model}) verified ${statements.length} statement${statements.length > 1 ? 's' : ''}.`
       };
       aiVerificationResult = res;
-      if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+      showPersistentWidget(lastScanResult);
+      chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
       return res;
 
     } catch (err) {
@@ -1283,14 +1396,32 @@ Respond ONLY with a valid JSON object matching this schema:
     }
   }
 
-  const localEval = compareNamesDetailed(profileName, bankName);
+  // Fallback to local NLP evaluation if all AI models fail
+  let hasMismatch = false;
+  let matchCount = 0;
+  let partialCount = 0;
+  statements.forEach(st => {
+    const localEval = compareNamesDetailed(profileName, st.rawName || st.name);
+    const v = localEval.result.toUpperCase();
+    st.aiResult = { verdict: v, confidence: localEval.confidence, reason: `Local NLP fallback (${localEval.confidence}%)` };
+    if (v === 'MATCH') { st.overallResult = 'match'; st.needsManualCheck = false; matchCount++; }
+    else if (v === 'PARTIAL') { st.overallResult = 'partial'; st.needsManualCheck = false; partialCount++; }
+    else { st.overallResult = 'mismatch'; st.needsManualCheck = true; hasMismatch = true; }
+  });
+
+  lastScanResult.matchCount = matchCount;
+  lastScanResult.partialCount = partialCount;
+  lastScanResult.mismatchCount = statements.length - (matchCount + partialCount);
+  lastScanResult.mismatchFound = hasMismatch;
+
   const res = {
-    verdict: localEval.result.toUpperCase(),
-    confidence: localEval.confidence,
-    reason: `AI Note: ${lastError?.message || "API call failed"}. Evaluated using Local Indian NLP Engine (${localEval.confidence}% confidence).`
+    verdict: hasMismatch ? "MISMATCH" : partialCount > 0 ? "PARTIAL" : "MATCH",
+    confidence: 85,
+    reason: `AI Note: ${lastError?.message || "API call failed"}. Verified using Local Indian NLP Engine.`
   };
   aiVerificationResult = res;
-  if (lastScanResult.scanned) showPersistentWidget(lastScanResult);
+  showPersistentWidget(lastScanResult);
+  chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
   return res;
 }
 
@@ -1542,6 +1673,13 @@ function showPersistentWidget(result) {
           </div>`
         : '';
 
+      const aiRowHTML = st.aiResult
+        ? `<div style="font-size:8px;font-weight:600;color:#c084fc;margin-top:4px;padding:3px 6px;border-radius:4px;background:rgba(147,51,234,.08);border:1px solid rgba(147,51,234,.2);">
+            <span style="font-weight:700;">✨ AI ${st.aiResult.verdict} (${st.aiResult.confidence}%):</span>
+            <span style="color:${isLight ? '#475569' : 'rgba(255,255,255,.75)'};margin-left:3px;">${st.aiResult.reason}</span>
+           </div>`
+        : '';
+
       return `
         <div style="padding:8px 10px;${!isLast ? 'border-bottom:1px solid ' + (isLight ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.05)') + ';' : ''}
           background:rgba(${stRGB},.04);">
@@ -1564,6 +1702,7 @@ function showPersistentWidget(result) {
           </div>
           ${fnDiff}
           ${manualCheckHTML}
+          ${aiRowHTML}
 
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:${(fnDiff || manualCheckHTML) ? '4px' : '0'};">
             <span style="font-size:13px;font-weight:700;letter-spacing:.05em;
