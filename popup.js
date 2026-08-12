@@ -381,9 +381,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     valProfile.innerText = data.profileName || "Not found";
     valProfile.title     = data.profileName || "";
     valCount.innerText   = data.count       ?? "0";
-    valMatch.innerText   = data.matchCount  ?? "0";
-    valPartial.innerText = data.partialCount ?? "0";
-    valMismatch.innerText= data.mismatchCount ?? "0";
+    valMatch.innerText   = data.isVerifying ? "0" : (data.matchCount  ?? "0");
+    valPartial.innerText = data.isVerifying ? "0" : (data.partialCount ?? "0");
+    valMismatch.innerText= data.isVerifying ? "0" : (data.mismatchCount ?? "0");
 
     if (data.profileName === "Domain Not Authorized") {
       resultIcon.innerText = "🚫";

@@ -419,13 +419,25 @@ function runScan(_force = false) {
       bankAccountID: bestSt?.accountID || null
     };
 
-    // Smooth mismatch loading buffer: when mismatch detected on initial unforced scan, show loading/verifying state first!
-    if (mismatchFound && !_force && (!lastScanResult.scanned || !lastScanResult.mismatchFound || lastScanResult.isVerifying)) {
+    if (!_force) {
+      // Neutral Scanning/Verifying State while page DOM settles — NO RED, NO PREMATURE MISMATCH
+      const verifyingStatements = processedStatements.map(st => ({
+        ...st,
+        overallResult: 'verifying',
+        nameResult: 'verifying',
+        needsManualCheck: false
+      }));
+
       lastScanResult = {
         ...scanData,
+        scanned: true,
         isVerifying: true,
-        verifyingMessage: "Analyzing Name Compatibility..."
+        mismatchFound: false,
+        mismatchCount: 0,
+        verifyingMessage: "Analyzing Name Compatibility...",
+        statements: verifyingStatements
       };
+
       showPersistentWidget(lastScanResult);
       chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
 
@@ -1480,40 +1492,46 @@ function showPersistentWidget(result) {
   if (statements.length > 0) {
     stmtsHTML = statements.map((st, idx) => {
       const isLast = idx === statements.length - 1;
-      const stColor = st.overallResult === 'match'   ? '#22c55e'
+      const isVerifyingRow = isVerifying || st.overallResult === 'verifying' || st.nameResult === 'verifying';
+      const stColor = isVerifyingRow ? '#3b82f6'
+                    : st.overallResult === 'match'   ? '#22c55e'
                     : st.overallResult === 'partial'  ? '#f59e0b' : '#ef4444';
-      const stRGB   = st.overallResult === 'match'   ? '34,197,94'
+      const stRGB   = isVerifyingRow ? '59,130,246'
+                    : st.overallResult === 'match'   ? '34,197,94'
                     : st.overallResult === 'partial'  ? '245,158,11' : '239,68,68';
-      const stIcon  = st.overallResult === 'match'   ? '✓'
+      const stIcon  = isVerifyingRow ? '<span style="display:inline-block;animation:_nc_spin .8s linear infinite;">⏳</span>'
+                    : st.overallResult === 'match'   ? '✓'
                     : st.overallResult === 'partial'  ? '~' : '✕';
 
-      const nColor = st.nameResult === 'match'   ? '#22c55e'
+      const nColor = isVerifyingRow ? '#3b82f6'
+                   : st.nameResult === 'match'   ? '#22c55e'
                    : st.nameResult === 'partial'  ? '#f59e0b'
                    : st.nameResult === 'unavailable' ? (isLight ? '#64748b' : 'rgba(255,255,255,.3)') : '#ef4444';
-      const nRGB   = st.nameResult === 'match'   ? '34,197,94'
+      const nRGB   = isVerifyingRow ? '59,130,246'
+                   : st.nameResult === 'match'   ? '34,197,94'
                    : st.nameResult === 'partial'  ? '245,158,11'
                    : st.nameResult === 'unavailable' ? '100,116,139' : '239,68,68';
-      const nSign  = st.nameResult === 'match' ? '✓' : st.nameResult === 'partial' ? '~' : st.nameResult === 'unavailable' ? '?' : '✕';
+      const nSign  = isVerifyingRow ? '⏳' : st.nameResult === 'match' ? '✓' : st.nameResult === 'partial' ? '~' : st.nameResult === 'unavailable' ? '?' : '✕';
 
-      const pr = st.panResult?.result || 'unavailable';
-      const pColor = pr === 'match' ? '#22c55e' : pr === 'partial' ? '#f59e0b'
+      const pr = isVerifyingRow ? 'verifying' : (st.panResult?.result || 'unavailable');
+      const pColor = isVerifyingRow ? '#3b82f6' : pr === 'match' ? '#22c55e' : pr === 'partial' ? '#f59e0b'
                    : pr === 'unavailable' ? (isLight ? '#64748b' : 'rgba(255,255,255,.28)') : '#ef4444';
-      const pRGB   = pr === 'match' ? '34,197,94' : pr === 'partial' ? '245,158,11'
+      const pRGB   = isVerifyingRow ? '59,130,246' : pr === 'match' ? '34,197,94' : pr === 'partial' ? '245,158,11'
                    : pr === 'unavailable' ? '100,116,139' : '239,68,68';
-      const pSign  = pr === 'match' ? '✓' : pr === 'partial' ? `~${st.panResult.matchLen}` : pr === 'unavailable' ? '—' : '✕';
+      const pSign  = isVerifyingRow ? '⏳' : pr === 'match' ? '✓' : pr === 'partial' ? `~${st.panResult.matchLen}` : pr === 'unavailable' ? '—' : '✕';
 
       const dispName = (st.name || '—').toUpperCase();
 
-      const canCopy = !!st.copyEnabled;
+      const canCopy = !isVerifyingRow && !!st.copyEnabled;
       const btnStyle = canCopy
         ? `background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#3b82f6;cursor:pointer;`
         : `background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.07);color:${isLight ? '#94a3b8' : 'rgba(255,255,255,.2)'};cursor:not-allowed;`;
 
-      const fnDiff = st.nameDetail?.firstNameDiffers
+      const fnDiff = (!isVerifyingRow && st.nameDetail?.firstNameDiffers)
         ? `<span style="font-size:8px;color:${isLight ? '#64748b' : 'rgba(255,255,255,.28)'};display:block;margin-top:2px;">${st.nameDetail.firstNameProfile} ≠ ${st.nameDetail.firstNameBank}</span>`
         : '';
 
-      const manualCheckHTML = st.needsManualCheck
+      const manualCheckHTML = (!isVerifyingRow && st.needsManualCheck)
         ? `<div style="display:flex;align-items:center;gap:4px;margin-top:5px;padding:3px 6px;border-radius:4px;
             background:rgba(${st.overallResult === 'mismatch' ? '239,68,68' : '245,158,11'},.09);
             border:1px solid rgba(${st.overallResult === 'mismatch' ? '239,68,68' : '245,158,11'},.22);">
