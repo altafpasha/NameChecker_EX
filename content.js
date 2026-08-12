@@ -278,12 +278,24 @@ function observeChanges() {
   }
   if (mutationObserverInstance) return;
 
-  mutationObserverInstance = new MutationObserver(() => {
+  mutationObserverInstance = new MutationObserver((mutations) => {
     if (isScanning || !extensionEnabled || !isDomainAllowed()) return;
+
+    // Filter out self-induced mutations from our own widget, highlights, or injected styles
+    const hasExternalMutation = mutations.some(m => {
+      const target = m.target;
+      if (!target) return false;
+      if (target.id === 'nc-widget' || (target.closest && target.closest('#nc-widget'))) return false;
+      if (target.id === 'namecheck-styles') return false;
+      if (target.classList && target.classList.contains('namecheck-highlighted')) return false;
+      return true;
+    });
+
+    if (!hasExternalMutation) return;
+
     clearTimeout(scanTimeout);
     scanTimeout = setTimeout(() => {
       if (!isDomainAllowed() || !extensionEnabled) return;
-      if (!lastScanResult.scanned) { runScan(); return; }
       if (window.location.href !== lastScannedUrl) { runScan(); return; }
       const nodes = getTargetDOMNodes();
       const pProfile = peekProfileName(nodes);
@@ -526,10 +538,6 @@ function runScan(_force = false) {
 
     showPersistentWidget(lastScanResult);
     chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
-
-    if (mismatchFound && !lastScanResult.isVerifying) {
-      scheduleSelfHealingRetry();
-    }
 
   } catch (err) {
     console.error("NameCheck Scan Error:", err);
