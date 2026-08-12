@@ -121,7 +121,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (res.allowedDomains) {
       allowedDomainsInput.value = decryptDomainString(res.allowedDomains);
     } else {
-      allowedDomainsInput.value = "ibnbfc.in";
+      allowedDomainsInput.value = "*";
     }
   });
 
@@ -202,9 +202,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let tab = null;
+  const currentTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (currentTabs && currentTabs.length > 0) {
+    tab = currentTabs[0];
+  }
+  if (!tab || !tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://") || tab.url.startsWith("about:") || tab.url.startsWith("chrome-extension://")) {
+    const lastTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (lastTabs && lastTabs.length > 0 && lastTabs[0].url && !lastTabs[0].url.startsWith("chrome://") && !lastTabs[0].url.startsWith("edge://") && !lastTabs[0].url.startsWith("about:") && !lastTabs[0].url.startsWith("chrome-extension://")) {
+      tab = lastTabs[0];
+    }
+  }
 
-  if (!tab || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://")) {
+  if (!tab || !tab.id || !tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://") || tab.url.startsWith("about:") || tab.url.startsWith("chrome-extension://")) {
     setDisconnectedState();
     return;
   }
@@ -228,6 +238,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   scanBtn.addEventListener("click", () => {
+    if (!tab || !tab.id) {
+      autoInjectAndConnect();
+      return;
+    }
     scanBtn.disabled = true;
     scanBtn.innerHTML = '<div class="spinner"></div> Scanning...';
 
@@ -250,6 +264,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   aiBtn.addEventListener("click", () => {
+    if (!tab || !tab.id) {
+      autoInjectAndConnect();
+      return;
+    }
     aiBtn.disabled = true;
     aiBtn.innerHTML = '<div class="spinner"></div> AI Verifying...';
 
@@ -272,7 +290,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   function autoInjectAndConnect() {
-    if (!tab || !tab.id || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://")) {
+    if (!tab || !tab.id || !tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://") || tab.url.startsWith("about:") || tab.url.startsWith("chrome-extension://")) {
       setDisconnectedState();
       return;
     }
@@ -287,19 +305,29 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (chrome.runtime.lastError) {
         setDisconnectedState();
       } else {
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tab.id, { action: "GET_STATUS" }, (response) => {
-            if (!chrome.runtime.lastError && response) {
-              setConnectedState();
-              updateToggleUI(response.extensionEnabled !== false);
-              if (response.theme) applyTheme(response.theme);
-              if (response.result) updateUI(response.result);
-              if (response.aiResult) renderAIResult(response.aiResult);
-            } else {
-              setDisconnectedState();
-            }
-          });
-        }, 300);
+        chrome.tabs.sendMessage(tab.id, { action: "GET_STATUS" }, (response) => {
+          if (!chrome.runtime.lastError && response) {
+            setConnectedState();
+            updateToggleUI(response.extensionEnabled !== false);
+            if (response.theme) applyTheme(response.theme);
+            if (response.result) updateUI(response.result);
+            if (response.aiResult) renderAIResult(response.aiResult);
+          } else {
+            setTimeout(() => {
+              chrome.tabs.sendMessage(tab.id, { action: "GET_STATUS" }, (res2) => {
+                if (!chrome.runtime.lastError && res2) {
+                  setConnectedState();
+                  updateToggleUI(res2.extensionEnabled !== false);
+                  if (res2.theme) applyTheme(res2.theme);
+                  if (res2.result) updateUI(res2.result);
+                  if (res2.aiResult) renderAIResult(res2.aiResult);
+                } else {
+                  setDisconnectedState();
+                }
+              });
+            }, 200);
+          }
+        });
       }
     });
   }
@@ -357,7 +385,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     valPartial.innerText = data.partialCount ?? "0";
     valMismatch.innerText= data.mismatchCount ?? "0";
 
-    if (!data.scanned || data.noElements) {
+    if (data.profileName === "Domain Not Authorized") {
+      resultIcon.innerText = "🚫";
+      resultText.innerText = "Domain Not Authorized";
+      resultText.className = "result-label mismatch";
+      resultSub.innerText  = "Open Settings ⚙️ to add domain or allow '*'";
+      resultBox.style.borderColor = "rgba(239,68,68,.3)";
+      resultBox.style.background  = "rgba(239,68,68,.05)";
+      partialPanel.classList.remove("visible");
+
+    } else if (!data.scanned || data.noElements) {
       resultIcon.innerText = "🔍";
       resultText.innerText = data.noElements ? "No accounts found" : "Waiting for data";
       resultText.className = "result-label none";

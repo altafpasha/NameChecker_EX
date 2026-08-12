@@ -75,9 +75,9 @@ function decryptDomainString(enc) {
 }
 
 function isDomainAllowed() {
-  const rawDomains = decryptDomainString(allowedDomainsEncrypted) || "ibnbfc.in";
+  const rawDomains = decryptDomainString(allowedDomainsEncrypted) || "*";
   const rules = rawDomains.split(/[\s,]+/).map(r => r.trim().toLowerCase()).filter(Boolean);
-  if (rules.length === 0) return true;
+  if (rules.length === 0 || rules.includes("*") || rules.includes("all")) return true;
 
   const currentHost = window.location.hostname.toLowerCase();
   const currentHref = window.location.href.toLowerCase();
@@ -99,6 +99,57 @@ chrome.storage.local.get(['savedProfileName', 'savedProfilePAN', 'extensionEnabl
   if (res.aiProvider) aiProvider = res.aiProvider;
   if (res.allowedDomains) allowedDomainsEncrypted = res.allowedDomains;
 });
+
+// Register message listener immediately so popup requests are handled instantly on injection
+if (!window._nameCheckerMessageListenerSet) {
+  window._nameCheckerMessageListenerSet = true;
+  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+    if (request.action === "SCAN_NAMES") {
+      selfHealingRetryCount = 0;
+      runScan(true);
+      sendResponse({ status: "scanned", result: lastScanResult });
+    } else if (request.action === "TOGGLE_EXTENSION") {
+      extensionEnabled = request.enabled;
+      chrome.storage.local.set({ extensionEnabled });
+      if (!extensionEnabled) { removeWidget(); clearHighlights(); }
+      else { selfHealingRetryCount = 0; runScan(true); }
+      sendResponse({ enabled: extensionEnabled });
+    } else if (request.action === "GET_STATUS") {
+      if (!lastScanResult.scanned && extensionEnabled) {
+        runScan();
+      }
+      sendResponse({ status: "success", result: lastScanResult, extensionEnabled, theme: currentTheme, aiResult: aiVerificationResult });
+    } else if (request.action === "SET_THEME") {
+      currentTheme = request.theme || 'dark';
+      chrome.storage.local.set({ theme: currentTheme });
+      if (lastScanResult && lastScanResult.scanned) {
+        showPersistentWidget(lastScanResult);
+      }
+      sendResponse({ theme: currentTheme });
+    } else if (request.action === "SAVE_SETTINGS") {
+      if (request.apiKey !== null && request.apiKey !== undefined) geminiApiKeyEncrypted = encryptApiKey(request.apiKey);
+      if (request.provider) aiProvider = request.provider;
+      if (request.allowedDomains !== undefined) allowedDomainsEncrypted = request.allowedDomains;
+      chrome.storage.local.set({ geminiApiKey: geminiApiKeyEncrypted, aiProvider, allowedDomains: allowedDomainsEncrypted });
+      runScan(true);
+      sendResponse({ success: true });
+    } else if (request.action === "SAVE_API_KEY") {
+      geminiApiKeyEncrypted = encryptApiKey(request.apiKey || "");
+      if (request.provider) aiProvider = request.provider;
+      chrome.storage.local.set({ geminiApiKey: geminiApiKeyEncrypted, aiProvider });
+      sendResponse({ success: true });
+    } else if (request.action === "SET_AI_PROVIDER") {
+      if (request.provider) aiProvider = request.provider;
+      chrome.storage.local.set({ aiProvider });
+      sendResponse({ success: true });
+    } else if (request.action === "VERIFY_AI") {
+      handleAIVerificationRequest().then((res) => {
+        sendResponse({ success: true, aiResult: res });
+      });
+      return true; // async
+    }
+  });
+}
 
 // Quick DOM probe: profile-name labels
 function peekProfileName() {
@@ -149,50 +200,6 @@ if (document.readyState === 'complete') { _startScanner(); }
 else { window.addEventListener('load', _startScanner); }
 
 function initScanner() {
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-    if (request.action === "SCAN_NAMES") {
-      selfHealingRetryCount = 0;
-      runScan(true);
-      sendResponse({ status: "scanned", result: lastScanResult });
-    } else if (request.action === "TOGGLE_EXTENSION") {
-      extensionEnabled = request.enabled;
-      chrome.storage.local.set({ extensionEnabled });
-      if (!extensionEnabled) { removeWidget(); clearHighlights(); }
-      else { selfHealingRetryCount = 0; runScan(true); }
-      sendResponse({ enabled: extensionEnabled });
-    } else if (request.action === "GET_STATUS") {
-      sendResponse({ status: "success", result: lastScanResult, extensionEnabled, theme: currentTheme, aiResult: aiVerificationResult });
-    } else if (request.action === "SET_THEME") {
-      currentTheme = request.theme || 'dark';
-      chrome.storage.local.set({ theme: currentTheme });
-      if (lastScanResult && lastScanResult.scanned) {
-        showPersistentWidget(lastScanResult);
-      }
-      sendResponse({ theme: currentTheme });
-    } else if (request.action === "SAVE_SETTINGS") {
-      if (request.apiKey !== null && request.apiKey !== undefined) geminiApiKeyEncrypted = encryptApiKey(request.apiKey);
-      if (request.provider) aiProvider = request.provider;
-      if (request.allowedDomains !== undefined) allowedDomainsEncrypted = request.allowedDomains;
-      chrome.storage.local.set({ geminiApiKey: geminiApiKeyEncrypted, aiProvider, allowedDomains: allowedDomainsEncrypted });
-      runScan(true);
-      sendResponse({ success: true });
-    } else if (request.action === "SAVE_API_KEY") {
-      geminiApiKeyEncrypted = encryptApiKey(request.apiKey || "");
-      if (request.provider) aiProvider = request.provider;
-      chrome.storage.local.set({ geminiApiKey: geminiApiKeyEncrypted, aiProvider });
-      sendResponse({ success: true });
-    } else if (request.action === "SET_AI_PROVIDER") {
-      if (request.provider) aiProvider = request.provider;
-      chrome.storage.local.set({ aiProvider });
-      sendResponse({ success: true });
-    } else if (request.action === "VERIFY_AI") {
-      handleAIVerificationRequest().then((res) => {
-        sendResponse({ success: true, aiResult: res });
-      });
-      return true; // async
-    }
-  });
-
   observeChanges();
   runScan();
 }
