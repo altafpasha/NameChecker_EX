@@ -364,16 +364,8 @@ function runScan(_force = false) {
 
   try {
     clearHighlights();
-    if (!_force || window.location.href !== lastScannedUrl) {
-      lastScanResult = {
-        scanned: true,
-        isVerifying: true,
-        profileName: "Scanning...",
-        count: 0, matchCount: 0, partialCount: 0, mismatchCount: 0,
-        mismatchFound: false, noElements: false,
-        details: [], statements: [],
-        profilePAN: savedProfilePAN, bankPAN: null, panResult: null, bankAccountID: null
-      };
+    if (window.location.href !== lastScannedUrl) {
+      lastScannedUrl = window.location.href;
       aiVerificationResult = null;
     }
 
@@ -485,35 +477,6 @@ function runScan(_force = false) {
       panResult:  bestSt?.panResult || null,
       bankAccountID: bestSt?.accountID || null
     };
-
-    if (!_force) {
-      // Neutral Scanning/Verifying State while page DOM settles — NO RED, NO PREMATURE MISMATCH
-      const verifyingStatements = processedStatements.map(st => ({
-        ...st,
-        overallResult: 'verifying',
-        nameResult: 'verifying',
-        needsManualCheck: false
-      }));
-
-      lastScanResult = {
-        ...scanData,
-        scanned: true,
-        isVerifying: true,
-        mismatchFound: false,
-        mismatchCount: 0,
-        verifyingMessage: "Analyzing Name Compatibility...",
-        statements: verifyingStatements
-      };
-
-      showPersistentWidget(lastScanResult);
-      chrome.runtime.sendMessage({ action: "UPDATE_STATUS", result: lastScanResult }).catch(() => { });
-
-      clearTimeout(mismatchSettlingTimer);
-      mismatchSettlingTimer = setTimeout(() => {
-        runScan(true);
-      }, 1200);
-      return;
-    }
 
     lastScanResult = {
       ...scanData,
