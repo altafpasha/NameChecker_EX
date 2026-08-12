@@ -424,9 +424,16 @@ function runScan(_force = false) {
       const panResult = comparePANs(savedProfilePAN, st.pan);
 
       const nameOk = nameResult === 'match' || nameResult === 'partial';
-      const panOk  = panResult.result !== 'mismatch';
+      const panOk  = panResult.result === 'match' || panResult.result === 'unavailable';
       let overallResult;
-      if (nameResult === 'match' && (panResult.result === 'match' || panResult.result === 'unavailable')) {
+
+      // 100% PAN MATCH is definitive proof of identity
+      if (panResult.result === 'match') {
+        overallResult = 'match';
+        if (nameDetail) {
+          nameDetail.needsManualCheck = false;
+        }
+      } else if (nameResult === 'match' && (panResult.result === 'match' || panResult.result === 'unavailable')) {
         overallResult = 'match';
       } else if (nameOk && panOk) {
         overallResult = 'partial';
@@ -671,7 +678,7 @@ function findBankAccountHolderNames(passedNodes) {
 // ─────────────────────────────────────────────
 function findProfilePAN(passedNodes) {
   const allNodes = passedNodes || getTargetDOMNodes();
-  const panLabels = ["pan no", "pan number"];
+  const panLabels = ["pan", "pan no", "pan number", "pan card", "pan id", "pan no."];
   for (let i = 0; i < allNodes.length; i++) {
     const el = allNodes[i];
     const originalText = el.innerText?.trim() || "";
@@ -682,7 +689,10 @@ function findProfilePAN(passedNodes) {
       const nextText = (nextEl.tagName === 'INPUT' ? nextEl.value : nextEl.innerText)?.trim();
       if (!nextText || nextText.toLowerCase() === originalText.toLowerCase()) continue;
       if (!isTightest(nextEl, nextText)) continue;
-      if (/^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(nextText.trim())) return nextText.trim().toUpperCase();
+      const clean = nextText.replace(/[\s\-]/g, '').toUpperCase();
+      if (/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(clean) || /^[*X]{3,6}[0-9]{4}[A-Z]$/.test(clean)) {
+        return clean;
+      }
       break;
     }
   }
@@ -840,22 +850,23 @@ function extractStatementFromRange(allNodes, startIdx, endIdx, index) {
 
 function comparePANs(panA, panB) {
   if (!panA || !panB) return { result: "unavailable", matchedPart: null, matchLen: 0 };
-  const a = panA.toUpperCase().trim();
-  const b = panB.toUpperCase().trim();
+  const a = panA.toUpperCase().replace(/[\s\-]/g, '').trim();
+  const b = panB.toUpperCase().replace(/[\s\-]/g, '').trim();
   if (a === b) return { result: "match", matchedPart: a, matchLen: 10 };
 
-  if (/^[*X]+/.test(b)) {
-    const visible = b.replace(/^[*X]+/, '');
-    if (visible.length >= 5 && a.endsWith(visible))
-      return { result: "match", matchedPart: a, matchLen: 10 };
-    if (visible.length >= 4 && a.endsWith(visible))
-      return { result: "partial", matchedPart: visible, matchLen: visible.length };
+  if (/^[*X]+/.test(b) || /^[*X]+/.test(a)) {
+    const visB = b.replace(/^[*X]+/, '');
+    const visA = a.replace(/^[*X]+/, '');
+    const visible = (visB.length > 0 && visB.length <= visA.length) ? visB : visA;
+    if (visible.length >= 4 && (a.endsWith(visible) || b.endsWith(visible))) {
+      return { result: "match", matchedPart: visible, matchLen: visible.length };
+    }
   }
 
   if (a.length >= 5 && b.length >= 5 && a.slice(-5) === b.slice(-5))
-    return { result: "partial", matchedPart: a.slice(-5), matchLen: 5 };
+    return { result: "match", matchedPart: a.slice(-5), matchLen: 5 };
   if (a.length >= 4 && b.length >= 4 && a.slice(-4) === b.slice(-4))
-    return { result: "partial", matchedPart: a.slice(-4), matchLen: 4 };
+    return { result: "match", matchedPart: a.slice(-4), matchLen: 4 };
   return { result: "mismatch", matchedPart: null, matchLen: 0 };
 }
 

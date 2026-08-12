@@ -383,7 +383,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   function renderAIResult(res) {
-    if (!res) { aiBox.classList.remove("visible"); return; }
+    if (!res || res.verdict === "OFF" || providerSelect.value === "disabled") {
+      aiBox.classList.remove("visible");
+      return;
+    }
     aiBox.classList.add("visible");
     const vColor = res.verdict === "MATCH" ? "var(--success)" : res.verdict === "PARTIAL" ? "var(--warning)" : "var(--danger)";
     aiVerdict.innerText = `${res.verdict} (${res.confidence || 90}%)`;
