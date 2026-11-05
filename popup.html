@@ -2,339 +2,657 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NameCheck</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    :root[data-theme="dark"], :root {
-      --bg:      #0b0d17;
-      --card:    rgba(19, 23, 36, 0.85);
-      --card2:   rgba(26, 32, 50, 0.75);
-      --border:  rgba(255, 255, 255, 0.14);
-      --border2: rgba(255, 255, 255, 0.08);
-      --text:    #f1f5f9;
-      --muted:   #94a3b8;
-      --muted2:  #64748b;
-      --accent:  #3b82f6;
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --danger:  #ef4444;
-      --glass-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    :root {
+      --radius-xs: 5px;
+      --radius-sm: 8px;
+      --radius-md: 11px;
+      --radius-lg: 14px;
+      --radius-pill: 9999px;
+      --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: 'SF Mono', Consolas, Menlo, monospace;
+      --transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
+    /* ── DARK THEME (Obsidian Glass) ── */
+    :root[data-theme="dark"], :root {
+      --bg:             #080b11;
+      --card:           #111827;
+      --card2:          #0c121d;
+      --card-hover:     #172236;
+      --border:         #1f2e4a;
+      --border2:        #152033;
+      --text:           #ffffff;
+      --text-secondary: #e2e8f0;
+      --muted:          #94a3b8;
+      --muted2:         #64748b;
+      --accent:         #38bdf8;
+      --accent-hover:   #60a5fa;
+      --success:        #4ade80;
+      --warning:        #fbbf24;
+      --danger:         #f87171;
+      --shadow:         0 20px 48px -10px rgba(0,0,0,0.88), 0 2px 10px rgba(0,0,0,0.5);
+      --shadow-sm:      0 4px 14px -3px rgba(0,0,0,0.6);
+      --badge-match-bg: rgba(74, 222, 128, 0.18); --badge-match-bd: rgba(74, 222, 128, 0.40);
+      --badge-miss-bg:  rgba(248, 113, 113, 0.18); --badge-miss-bd: rgba(248, 113, 113, 0.40);
+      --badge-warn-bg:  rgba(251, 191, 36, 0.18);  --badge-warn-bd: rgba(251, 191, 36, 0.40);
+      --accent-wash:    rgba(56, 189, 248, 0.15);  --accent-bd: rgba(56, 189, 248, 0.35);
+    }
+
+    /* ── LIGHT THEME REDESIGN (Alabaster Glass) ── */
     :root[data-theme="light"] {
-      --bg:      #f1f5f9;
-      --card:    rgba(255, 255, 255, 0.88);
-      --card2:   rgba(241, 245, 249, 0.95);
-      --border:  rgba(203, 213, 225, 0.95);
-      --border2: rgba(226, 232, 240, 0.9);
-      --text:    #0f172a;
-      --muted:   #475569;
-      --muted2:  #64748b;
-      --accent:  #2563eb;
-      --success: #16a34a;
-      --warning: #d97706;
-      --danger:  #dc2626;
-      --glass-shadow: 0 12px 32px rgba(15, 23, 42, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+      --bg:             #f8fafc;
+      --card:           #ffffff;
+      --card2:          #f8fafc;
+      --card-hover:     #f1f5f9;
+      --border:         #e2e8f0;
+      --border2:        #edf2f7;
+      --text:           #0f172a;
+      --text-secondary: #334155;
+      --muted:          #64748b;
+      --muted2:         #94a3b8;
+      --accent:         #2563eb;
+      --accent-hover:   #1d4ed8;
+      --success:        #15803d;
+      --warning:        #b45309;
+      --danger:         #dc2626;
+      --shadow:         0 14px 34px -8px rgba(15,23,42,0.12), 0 2px 6px rgba(15,23,42,0.04);
+      --shadow-sm:      0 2px 8px -2px rgba(15,23,42,0.06), 0 1px 3px rgba(15,23,42,0.03);
+      --badge-match-bg: #dcfce7; --badge-match-bd: #86efac;
+      --badge-miss-bg:  #fee2e2; --badge-miss-bd: #fca5a5;
+      --badge-warn-bg:  #fef3c7; --badge-warn-bd: #fde68a;
+      --accent-wash:    rgba(37,99,235,0.08); --accent-bd: rgba(37,99,235,0.25);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    html {
+      background: var(--bg);
+      width: 100%;
+      min-width: 290px;
+      max-width: 330px;
+    }
+
     body {
-      font-family: 'Inter', system-ui, sans-serif;
+      font-family: var(--font-body);
       background: var(--bg);
       color: var(--text);
-      width: 310px;
-      padding: 14px;
-      font-size: 13px;
-      transition: background .2s, color .2s;
+      width: 100%;
+      min-width: 290px;
+      max-width: 330px;
+      padding: 9px 10px 6px;
+      font-size: 12px;
+      line-height: 1.35;
+      transition: background 0.2s, color 0.2s;
+      overflow-x: hidden;
+      box-sizing: border-box;
+      margin: 0 auto;
     }
+
+    .icon { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+    .i11 { width: 11px; height: 11px; } .i13 { width: 13px; height: 13px; } .i14 { width: 14px; height: 14px; } .i16 { width: 16px; height: 16px; }
 
     /* ── Header ── */
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
+      margin-bottom: 7px;
       gap: 6px;
     }
     .logo {
-      font-size: 13px; font-weight: 700;
-      display: flex; align-items: center; gap: 7px;
-      letter-spacing: .01em;
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: -0.015em;
+      color: var(--text);
       flex-shrink: 0;
     }
-    .shield { width: 19px; height: 19px; }
+    .brand-mark {
+      width: 21px;
+      height: 21px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(37,99,235,0.35);
+      flex-shrink: 0;
+    }
 
     .header-actions {
-      display: flex; align-items: center; gap: 4px;
-      flex-wrap: wrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
     }
 
     .icon-btn {
-      background: transparent;
+      background: var(--card2);
       border: 1px solid var(--border);
-      color: var(--text);
-      width: 24px; height: 24px;
+      color: var(--text-secondary);
+      width: 23px;
+      height: 23px;
       border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; font-size: 11px;
-      transition: all .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: var(--transition);
+      flex-shrink: 0;
     }
-    .icon-btn:hover { background: var(--card2); border-color: var(--muted2); }
+    .icon-btn:hover {
+      background: var(--card-hover);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .icon-btn:active { transform: scale(0.94); }
 
     .badge {
-      display: flex; align-items: center; gap: 5px;
-      font-size: 10px; font-weight: 600;
-      padding: 3px 8px; border-radius: 20px; border: 1px solid;
-      letter-spacing: .02em;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-display);
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 3px 6px;
+      border-radius: var(--radius-pill);
+      border: 1px solid;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
     }
-    .badge.active   { background: rgba(34,197,94,.1);  color: var(--success); border-color: rgba(34,197,94,.25); }
-    .badge.inactive { background: rgba(245,158,11,.1); color: var(--warning); border-color: rgba(245,158,11,.25); }
+    .badge.active   { background: var(--badge-match-bg); color: var(--success); border-color: var(--badge-match-bd); }
+    .badge.inactive { background: var(--badge-warn-bg);  color: var(--warning); border-color: var(--badge-warn-bd); }
 
     .toggle-pill {
-      font-size: 9px; font-weight: 700; letter-spacing: .05em;
-      padding: 3px 8px; border-radius: 20px; cursor: pointer;
-      transition: all .2s; border: 1px solid; font-family: inherit;
+      font-family: var(--font-display);
+      font-size: 8.5px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      padding: 3px 7px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      transition: var(--transition);
+      border: 1px solid;
     }
-    .toggle-pill.on  { background: rgba(34,197,94,.12); color: #4ade80; border-color: rgba(34,197,94,.28); }
-    .toggle-pill.off { background: rgba(239,68,68,.1);  color: #f87171; border-color: rgba(239,68,68,.28); }
+    .toggle-pill.on  { background: var(--badge-match-bg); color: var(--success); border-color: var(--badge-match-bd); }
+    .toggle-pill.off { background: var(--badge-miss-bg);  color: var(--danger);  border-color: var(--badge-miss-bd); }
 
     .dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: currentColor; animation: pulse 2s infinite;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 2.1s ease-in-out infinite;
     }
     @keyframes pulse {
-      0%,100% { opacity: .5; transform: scale(.9); }
-      50%      { opacity: 1;  transform: scale(1.15); }
+      0%,100% { opacity: 0.45; transform: scale(0.85); }
+      50%     { opacity: 1;    transform: scale(1.1); }
     }
 
-    /* ── Card ── */
+    /* ── Card (Unified with #nc-widget) ── */
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      box-shadow: var(--glass-shadow);
-      border-radius: 13px;
-      padding: 12px 13px;
-      margin-bottom: 10px;
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      box-shadow: var(--shadow-sm);
+      border-radius: var(--radius-md);
+      padding: 7px 9px;
+      margin-bottom: 5px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .card:hover {
+      border-color: var(--accent-bd);
     }
 
     /* ── Profile row ── */
     .profile-row {
-      display: flex; justify-content: space-between; align-items: center;
-      padding-bottom: 9px; margin-bottom: 9px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 4px;
+      margin-bottom: 4px;
       border-bottom: 1px solid var(--border2);
+      gap: 6px;
     }
     .profile-label {
-      color: var(--muted); font-size: 10px; font-weight: 600;
-      text-transform: uppercase; letter-spacing: .07em;
+      font-family: var(--font-display);
+      color: var(--muted);
+      font-size: 8.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      flex-shrink: 0;
     }
     .profile-value {
-      font-weight: 700; font-size: 12px; color: var(--text);
-      max-width: 190px; white-space: nowrap; overflow: hidden;
-      text-overflow: ellipsis; text-align: right;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 11px;
+      color: var(--text);
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: right;
     }
 
     /* ── Stat grid ── */
     .stat-grid {
-      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
     }
     .stat-cell {
-      background: var(--card2); border: 1px solid var(--border2);
-      border-radius: 8px; padding: 7px 8px;
-      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      background: var(--card2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-xs);
+      padding: 4px 3px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      transition: transform 0.15s, border-color 0.15s;
     }
-    .stat-cell-value  { font-size: 18px; font-weight: 700; line-height: 1; }
-    .stat-cell-label  { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-    .c-match   { color: var(--success); }
-    .c-partial { color: var(--warning); }
-    .c-mismatch{ color: var(--danger);  }
+    .stat-cell:hover {
+      border-color: var(--border);
+      transform: translateY(-1px);
+    }
+    .stat-cell-value {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+    .stat-cell-label {
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .c-match    { color: var(--success); }
+    .c-partial  { color: var(--warning); }
+    .c-mismatch { color: var(--danger);  }
 
     /* ── Partial detail panel ── */
     .partial-panel {
-      background: rgba(245,158,11,.06);
-      border: 1px solid rgba(245,158,11,.18);
-      border-radius: 8px; padding: 7px 10px;
-      margin-top: 9px; display: none;
+      background: var(--badge-warn-bg);
+      border: 1px solid var(--badge-warn-bd);
+      border-radius: var(--radius-xs);
+      padding: 5px 7px;
+      margin-top: 4px;
+      display: none;
     }
     .partial-panel.visible { display: block; }
     .partial-panel-title {
-      font-size: 9px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .08em; color: #fbbf24; margin-bottom: 5px;
+      font-family: var(--font-display);
+      font-size: 8px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--warning);
+      margin-bottom: 3px;
     }
-    .fn-diff { display: flex; align-items: center; gap: 6px; }
-    .fn-chip { background: var(--card2); color: var(--text); padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 600; }
-    .fn-sep  { color: var(--muted2); font-size: 13px; }
+    .fn-diff { display: flex; align-items: center; gap: 5px; }
+    .fn-chip {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+    .fn-sep { color: var(--muted2); font-size: 11px; }
 
     /* ── Result banner ── */
     .result {
-      margin-top: 9px; padding: 9px 11px; border-radius: 8px;
-      background: rgba(255,255,255,.025); border: 1px solid var(--border);
-      display: flex; align-items: center; gap: 9px;
-      transition: background .25s, border-color .25s;
+      margin-top: 5px;
+      padding: 5px 8px;
+      border-radius: var(--radius-xs);
+      background: var(--card2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      transition: background 0.2s, border-color 0.2s;
     }
-    .result-icon  { font-size: 16px; flex-shrink: 0; }
-    .result-body  { flex: 1; min-width: 0; }
-    .result-label { font-size: 12px; font-weight: 700; }
+    .result-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      background: var(--card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border2);
+    }
+    .result-body { flex: 1; min-width: 0; }
+    .result-label {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
     .result-label.match    { color: var(--success); }
     .result-label.partial  { color: var(--warning); }
     .result-label.mismatch { color: var(--danger);  }
-    .result-label.none     { color: var(--muted);   }
-    .result-sub  { font-size: 10px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-    /* ── AI Result Box ── */
-    .ai-box {
-      margin-top: 9px; padding: 8px 10px; border-radius: 8px;
-      background: rgba(147,51,234,.08); border: 1px solid rgba(147,51,234,.25);
-      display: none;
+    .result-label.none     { color: var(--text);    }
+    .result-sub {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 600;
     }
-    .ai-box.visible { display: block; }
-    .ai-box-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
-    .ai-box-title { font-size: 9px; font-weight: 700; color: #c084fc; letter-spacing: .05em; }
-    .ai-box-verdict { font-size: 9px; font-weight: 700; }
-    .ai-box-reason { font-size: 10px; color: var(--text); line-height: 1.35; }
 
-    .scan-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0 0; }
-    .scan-label { color: var(--muted); font-size: 10px; }
-    .scan-value { font-weight: 600; font-size: 11px; }
+    .scan-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 3px 0 0;
+      margin-top: 3px;
+      border-top: 1px solid var(--border2);
+    }
+    .scan-label {
+      font-family: var(--font-display);
+      color: var(--muted);
+      font-size: 8.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .scan-value {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 11px;
+      color: var(--text);
+    }
 
-    .sec-divider { height: 1px; background: var(--border2); margin: 9px 0; }
+    .sec-divider { height: 1px; background: var(--border2); margin: 4px 0; }
     .sec-title {
-      font-size: 9px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .08em; color: var(--muted); margin-bottom: 8px;
+      font-family: var(--font-display);
+      font-size: 8.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 2px;
     }
 
-    .pan-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
-    .pan-key   { color: var(--muted); font-size: 10px; flex-shrink: 0; width: 52px; }
-    .pan-val   { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .04em; color: var(--text); }
+    /* ── PAN & Account Rows ── */
+    .pan-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5px 0;
+      gap: 6px;
+    }
+    .pan-key {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      flex-shrink: 0;
+      width: 46px;
+      text-transform: uppercase;
+    }
+    .pan-val {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
     .pan-badge {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-size: 10px; font-weight: 700;
-      padding: 2px 8px; border-radius: 20px; border: 1px solid;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-family: var(--font-display);
+      font-size: 8.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: var(--radius-pill);
+      border: 1px solid;
+      white-space: nowrap;
     }
-    .pan-badge.match    { color: var(--success); background: rgba(34,197,94,.1);  border-color: rgba(34,197,94,.25); }
-    .pan-badge.partial  { color: var(--warning); background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.25); }
-    .pan-badge.mismatch { color: var(--danger);  background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.25); }
-    .pan-badge.none     { color: var(--muted);   background: transparent;         border-color: var(--border); }
+    .pan-badge.match           { color: var(--success); background: var(--badge-match-bg); border-color: var(--badge-match-bd); }
+    .pan-badge.not-match,
+    .pan-badge.mismatch        { color: var(--danger);  background: var(--badge-miss-bg);  border-color: var(--badge-miss-bd); }
+    .pan-badge.invalid-pan,
+    .pan-badge.invalid,
+    .pan-badge.partial         { color: var(--warning); background: var(--badge-warn-bg);  border-color: var(--badge-warn-bd); }
+    .pan-badge.pan-not-present,
+    .pan-badge.none            { color: var(--muted);   background: var(--card2);          border-color: var(--border); }
 
-    .pan-partial-info { font-size: 9px; color: var(--muted); margin-top: 3px; display: none; }
+    .pan-partial-info { font-size: 8.5px; color: var(--muted); margin-top: 2px; display: none; }
     .pan-partial-info.visible { display: block; }
-    .pan-highlight { color: #fbbf24; font-weight: 700; }
+    .pan-highlight { color: var(--warning); font-weight: 700; }
+
+    #acct-ids-list {
+      max-height: 56px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 2px;
+    }
+    #acct-ids-list::-webkit-scrollbar { width: 3px; }
+    #acct-ids-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
     .acct-id-item {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 5px 0; gap: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2.5px 0;
+      gap: 4px;
     }
     .acct-id-item + .acct-id-item { border-top: 1px solid var(--border2); }
-    .acct-item-num  { font-size: 9px; color: var(--muted); font-weight: 600; width: 18px; flex-shrink: 0; }
-    .acct-item-id   { font-size: 13px; font-weight: 700; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
-    .acct-item-id.dim { color: var(--muted); font-size: 11px; font-weight: 400; letter-spacing: 0; }
-    .acct-item-badge        { font-size: 10px; font-weight: 700; flex-shrink: 0; width: 14px; text-align: center; }
+    .acct-item-num  { font-family: var(--font-mono); font-size: 8px; color: var(--muted); font-weight: 800; width: 16px; flex-shrink: 0; }
+    .acct-item-id   { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); }
+    .acct-item-id.dim { color: var(--muted); font-size: 9.5px; font-weight: 500; letter-spacing: 0; }
+    .acct-item-badge        { width: 13px; height: 13px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; }
     .acct-item-badge.match   { color: var(--success); }
     .acct-item-badge.partial { color: var(--warning); }
     .acct-item-badge.miss    { color: var(--danger);  }
 
     .copy-btn {
-      display: flex; align-items: center; gap: 4px;
-      background: rgba(59,130,246,.15); border: 1px solid rgba(59,130,246,.3);
-      color: #60a5fa; border-radius: 6px; padding: 4px 10px;
-      font-size: 10px; font-weight: 600; font-family: inherit;
-      cursor: pointer; transition: all .15s; flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      color: var(--accent);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: var(--font-display);
+      font-size: 8px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: var(--transition);
+      flex-shrink: 0;
     }
-    .copy-btn:hover:not(:disabled) { background: rgba(59,130,246,.28); }
-    .copy-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .copy-btn:hover:not(:disabled) {
+      background: var(--card-hover);
+      border-color: var(--accent-bd);
+    }
+    .copy-btn:disabled { color: var(--muted2); cursor: not-allowed; opacity: 0.6; }
     .copy-btn.copied {
-      background: rgba(34,197,94,.15); border-color: rgba(34,197,94,.3);
-      color: #4ade80;
+      background: var(--badge-match-bg);
+      border-color: var(--badge-match-bd);
+      color: var(--success);
     }
 
-    .btn-row { display: flex; gap: 6px; margin-top: 8px; }
+    .btn-row {
+      display: flex;
+      gap: 5px;
+      margin-top: 5px;
+    }
 
     .btn {
-      flex: 1; background: var(--accent); color: #fff;
-      border: none; border-radius: 8px; padding: 9px;
-      font-size: 11px; font-weight: 600; font-family: inherit;
-      cursor: pointer; display: flex; align-items: center;
-      justify-content: center; gap: 5px;
-      transition: background .15s, transform .1s, opacity .15s;
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 7px 9px;
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      box-shadow: 0 2px 8px rgba(37,99,235,0.30);
+      transition: var(--transition);
+      white-space: nowrap;
     }
-    .btn:hover:not(:disabled) { background: #2563eb; }
-    .btn:active:not(:disabled){ transform: scale(.98); }
-    .btn:disabled { opacity: .4; cursor: not-allowed; }
-
-    .btn-ai {
-      background: linear-gradient(135deg, #a855f7, #7e22ce);
+    .btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      box-shadow: 0 4px 12px rgba(37,99,235,0.40);
+      transform: translateY(-1px);
     }
-    .btn-ai:hover:not(:disabled) { background: linear-gradient(135deg, #9333ea, #6b21a8); }
+    .btn:active:not(:disabled) { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 
     .kbd-badge {
-      font-size: 8px;
-      opacity: .8;
-      background: rgba(255,255,255,.18);
-      border: 1px solid rgba(255,255,255,.2);
+      font-family: var(--font-mono);
+      font-size: 7.5px;
+      opacity: 0.9;
+      background: rgba(255,255,255,0.22);
+      border: 1px solid rgba(255,255,255,0.32);
       border-radius: 3px;
       padding: 1px 4px;
-      margin-left: 3px;
-      font-weight: 600;
-      letter-spacing: .02em;
+      margin-left: 2px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
     }
 
     .spinner {
-      width: 12px; height: 12px;
-      border: 2px solid rgba(255,255,255,.25);
-      border-top-color: #fff;
+      width: 11px;
+      height: 11px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #ffffff;
       border-radius: 50%;
-      animation: spin .7s linear infinite;
+      animation: spin 0.7s linear infinite;
       flex-shrink: 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .icon-spin { animation: spin 1s linear infinite; }
 
-    #content-container { opacity: 0; transition: opacity .25s; }
+    #content-container { opacity: 0; transition: opacity 0.25s; }
     #content-container.visible { opacity: 1; }
 
     /* ── Settings Modal ── */
     .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,.6);
-      backdrop-filter: blur(4px); z-index: 100;
-      display: none; align-items: center; justify-content: center;
-      padding: 14px;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(5px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
     }
     .modal-overlay.visible { display: flex; }
     .modal-card {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; width: 100%; padding: 14px;
-      box-shadow: 0 10px 25px rgba(0,0,0,.3);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 310px;
+      padding: 14px;
+      box-shadow: var(--shadow);
     }
-    .modal-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-    .modal-sub { font-size: 10px; color: var(--muted); margin-bottom: 12px; line-height: 1.35; }
+    .modal-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text);
+    }
+    .modal-sub {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    .field-label {
+      font-family: var(--font-display);
+      font-size: 9px;
+      font-weight: 800;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
     .input-field {
-      width: 100%; background: var(--card2); border: 1px solid var(--border2);
-      color: var(--text); padding: 8px 10px; border-radius: 6px;
-      font-size: 11px; font-family: inherit; margin-bottom: 8px;
+      width: 100%;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 9px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      outline: none;
+      transition: var(--transition);
     }
-    .input-field:focus { outline: none; border-color: var(--accent); }
-    .modal-badge { font-size: 9px; font-weight: 600; color: #a855f7; background: rgba(168,85,247,.1); border: 1px solid rgba(168,85,247,.25); padding: 2px 6px; border-radius: 4px; display: inline-block; margin-bottom: 10px; }
+    .input-field:focus {
+      border-color: var(--accent);
+    }
   </style>
 </head>
 <body>
 
+  <svg style="position:absolute;width:0;height:0" aria-hidden="true">
+    <defs>
+      <symbol id="ic-shield" viewBox="0 0 24 24"><path d="M12 2 4 5.5v6c0 5 3.4 9.2 8 10.5 4.6-1.3 8-5.5 8-10.5v-6z"/><path d="m9 12 2 2 4-4.2"/></symbol>
+      <symbol id="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M4.4 4.4l1.7 1.7M17.9 17.9l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.4 19.6l1.7-1.7M17.9 6.1l1.7-1.7"/></symbol>
+      <symbol id="ic-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z"/></symbol>
+      <symbol id="ic-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V19.6a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H2.4a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H8.5a1.7 1.7 0 0 0 1-1.55V2.4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21.6a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></symbol>
+      <symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.36"/><path d="M21 3v6h-6"/></symbol>
+      <symbol id="ic-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+      <symbol id="ic-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.3 2.4 2.4L16 9.6"/></symbol>
+      <symbol id="ic-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.2v.1"/></symbol>
+      <symbol id="ic-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9.5 9.5 5 5m0-5-5 5"/></symbol>
+      <symbol id="ic-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+      <symbol id="ic-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+      <symbol id="ic-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 5.7A10.6 10.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a15.8 15.8 0 0 1-3.2 4M6.7 6.8C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9.8 9.8 0 0 0 3.4-.62M9.9 9.9a2.6 2.6 0 0 0 3.6 3.7"/></symbol>
+      <symbol id="ic-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="ic-plug" viewBox="0 0 24 24"><path d="M9 2v5M15 2v5M7 8h10l-1 5.5a5 5 0 0 1-9 0z"/><path d="M12 17.5V22"/></symbol>
+      <symbol id="ic-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+      <symbol id="ic-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- Extension Header -->
   <div class="header">
     <div class="logo">
-      <svg class="shield" viewBox="0 0 20 20" fill="none">
-        <path d="M10 2L3 5v5c0 4.1 2.9 7.9 7 9 4.1-1.1 7-4.9 7-9V5l-7-3z"
-          fill="rgba(59,130,246,.15)" stroke="#3b82f6" stroke-width="1.4" stroke-linejoin="round"/>
-        <path d="M7.5 10l1.8 1.8 3.2-3.2" stroke="#3b82f6" stroke-width="1.5"
-          stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      NameCheck
+      <span class="brand-mark"><svg class="icon i13" viewBox="0 0 24 24"><use href="#ic-shield"/></svg></span>
+      <span>NameCheck</span>
     </div>
     <div class="header-actions">
-      <button class="icon-btn" id="themeBtn" title="Toggle Light/Dark Theme">☀️</button>
-      <button class="icon-btn" id="settingsBtn" title="AI Settings">⚙️</button>
+      <button class="icon-btn" id="themeBtn" title="Toggle Light/Dark Theme"><svg class="icon i14" viewBox="0 0 24 24"><use href="#ic-sun"/></svg></button>
+      <button class="icon-btn" id="settingsBtn" title="Settings &amp; Engine"><svg class="icon i14" viewBox="0 0 24 24"><use href="#ic-gear"/></svg></button>
       <div class="badge inactive" id="monitoring-status">
         <div class="dot"></div>
         <span id="status-text">Connecting</span>
@@ -345,8 +663,12 @@
 
   <div id="content-container">
 
-    <!-- Card 1: Name Check -->
+    <!-- Card 1: Customer Profile & Name Verification -->
     <div class="card">
+      <div class="profile-row" style="margin-bottom:3px;">
+        <span class="profile-label">App ID</span>
+        <span class="profile-value" id="val-app-id" style="font-family:var(--font-mono);font-size:10px;font-weight:700;" title="">—</span>
+      </div>
       <div class="profile-row">
         <span class="profile-label">Profile</span>
         <span class="profile-value" id="val-profile" title="">—</span>
@@ -379,7 +701,7 @@
 
       <!-- Result banner -->
       <div class="result" id="result-box">
-        <div class="result-icon" id="result-icon">⏳</div>
+        <div class="result-icon" id="result-icon"></div>
         <div class="result-body">
           <div class="result-label none" id="result-text">Waiting for data</div>
           <div class="result-sub"        id="result-sub"></div>
@@ -387,12 +709,14 @@
       </div>
 
       <!-- AI Result Box -->
-      <div class="ai-box" id="ai-box">
-        <div class="ai-box-head">
-          <span class="ai-box-title">✨ AI VERIFICATION</span>
-          <span class="ai-box-verdict" id="ai-verdict">—</span>
+      <div class="ai-box" id="ai-box" style="margin-top:5px;padding:5px 8px;border-radius:6px;background:rgba(139,92,246,0.10);border:1px solid rgba(139,92,246,0.30);display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+          <span style="font-size:8.5px;font-weight:800;color:#a78bfa;letter-spacing:0.04em;display:flex;align-items:center;gap:3px;">
+            <svg class="icon i11" viewBox="0 0 24 24" style="stroke:#a78bfa;"><use href="#ic-sparkles"/></svg> AI VERIFICATION
+          </span>
+          <span id="ai-verdict" style="font-size:8.5px;font-weight:800;padding:1px 5px;border-radius:4px;background:var(--card2);">MATCH (95%)</span>
         </div>
-        <div class="ai-box-reason" id="ai-reason">—</div>
+        <div id="ai-reason" style="font-size:9px;color:var(--text);line-height:1.3;">Verified by AI.</div>
       </div>
 
       <div class="scan-row">
@@ -401,87 +725,150 @@
       </div>
     </div>
 
-    <!-- Card 2: PAN + Account ID -->
+    <!-- Card 2: PAN Verification -->
     <div class="card">
-      <div class="sec-title">PAN Verification</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+        <span class="sec-title" style="margin-bottom:0;">PAN Verification</span>
+        <span class="pan-badge none" id="pan-badge">— Pan_Not_Present</span>
+      </div>
       <div class="pan-row">
         <span class="pan-key">Profile</span>
         <span class="pan-val" id="val-profile-pan">—</span>
       </div>
-      <div class="pan-row" style="margin-bottom:8px;">
+      <div class="pan-row">
         <span class="pan-key">Bank</span>
         <span class="pan-val" id="val-bank-pan">—</span>
-      </div>
-
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <span class="pan-badge none" id="pan-badge">— Not available</span>
       </div>
       <div class="pan-partial-info" id="pan-partial-info">
         Last <span id="pan-match-len">?</span> chars match:
         <span class="pan-highlight" id="pan-match-part">—</span>
       </div>
+    </div>
 
-      <div class="sec-divider"></div>
+    <!-- Card 3: Account Type (Dedicated Card) -->
+    <div class="card" id="card-acct-type">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+        <span class="sec-title" style="margin-bottom:0;">Account Type</span>
+        <span class="pan-badge none" id="acct-badge">— Not provided</span>
+      </div>
+      <div class="pan-row" style="margin-bottom:1px;">
+        <span class="pan-key">Detected</span>
+        <span class="pan-val" id="val-acct-type" style="font-weight:700;">—</span>
+      </div>
+      <div class="pan-partial-info" id="acct-alert-info"></div>
+    </div>
 
-      <div>
-        <div class="sec-title" style="margin-bottom:5px;">Bank Account IDs</div>
-        <div id="acct-ids-list">
-          <span class="acct-item-id dim">—</span>
-        </div>
+    <!-- Card 4: Bank Account IDs + Overall Status -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+        <span class="sec-title" style="margin-bottom:0;">Bank Account IDs</span>
+        <span class="pan-badge none" id="overall-badge" style="font-size:8px;padding:1.5px 5px;">— Waiting</span>
+      </div>
+      <div class="pan-partial-info" id="overall-info"></div>
+      <div id="acct-ids-list" style="margin-top:2px;">
+        <span class="acct-item-id dim">—</span>
       </div>
     </div>
 
-    <div class="btn-row">
-      <button class="btn" id="scanBtn">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-        Force Scan <span class="kbd-badge">Alt+S</span>
+    <!-- Buttons Row: Force Scan, Verify AI & Reset -->
+    <div class="btn-row" style="display:flex;gap:4px;">
+      <button class="btn" id="scanBtn" style="flex:1;">
+        <svg class="icon i13" viewBox="0 0 24 24"><use href="#ic-refresh"/></svg>
+        Scan <span class="kbd-badge">Alt+S</span>
       </button>
-      <button class="btn btn-ai" id="aiBtn">
-        ✨ Verify AI <span class="kbd-badge">Alt+A</span>
+      <button class="btn btn-ai" id="aiBtn" style="flex:1.2;background:linear-gradient(135deg, #8b5cf6, #6366f1);color:#fff;" title="Verify identity with AI (Alt+A)">
+        <svg class="icon i13" viewBox="0 0 24 24"><use href="#ic-sparkles"/></svg>
+        AI <span class="kbd-badge">Alt+A</span>
+      </button>
+      <button class="btn" id="resetBtn" style="flex:0.8;background:var(--card);color:var(--text);border:1px solid var(--border);" title="Clear customer cache &amp; reset scan">
+        <svg class="icon i13" viewBox="0 0 24 24"><use href="#ic-rotate-ccw"/></svg>
+        Reset <span class="kbd-badge">Alt+R</span>
       </button>
     </div>
-    
-    <div style="text-align: center; margin-top: 12px; font-size: 10px; color: var(--muted); font-weight: 500; letter-spacing: 0.02em;">
+
+    <div style="text-align: center; margin-top: 5px; font-size: 8.5px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em;">
       Developed by Altaf
     </div>
 
   </div>
 
-  <!-- Settings Modal -->
+  <!-- Settings & Domain Guard Modal -->
   <div class="modal-overlay" id="settingsModal">
     <div class="modal-card">
       <div class="modal-title">
-        <span>AI Engine & Settings</span>
-        <button class="icon-btn" id="closeModalBtn" style="border:none;">✕</button>
+        <span>Settings &amp; Engine</span>
+        <button class="icon-btn" id="closeModalBtn" style="border:none;background:transparent;"><svg class="icon i13" viewBox="0 0 24 24"><use href="#ic-x"/></svg></button>
       </div>
-      <div class="modal-sub">Choose your preferred AI Engine and enter optional API keys. Encrypted and stored locally.</div>
+      <div class="modal-sub">Configure allowed portal URLs and Needle 3 AI engine offline.</div>
 
-      <div style="margin-bottom:8px;">
-        <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">AI Provider</label>
-        <select class="input-field" id="providerSelect" style="cursor:pointer;margin-bottom:6px;">
-          <option value="disabled">Disabled (Turn OFF AI Verification)</option>
-          <option value="gemini">Google Gemini (Ultra-Fast Free Tier)</option>
-          <option value="huggingface">Hugging Face SmolLM-135M (&lt;300MB Light LLM)</option>
-          <option value="gemma">Hugging Face Gemma-2B Model</option>
-          <option value="local">Local Indian NLP Engine (Zero API Key)</option>
-        </select>
-      </div>
-
-      <div class="modal-badge" id="modalBadge">SmolLM-135M Instruct (<300MB Footprint)</div>
-      <input type="password" class="input-field" id="apiKeyInput" placeholder="Enter API Key (Gemini or HuggingFace)..." />
-
-      <div style="margin-top:8px;margin-bottom:8px;">
-        <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;">🔒 Encrypted Target Domains / URLs</label>
+      <!-- Target Domains -->
+      <div style="margin-top:6px;margin-bottom:10px;">
+        <label class="field-label"><svg class="icon i11" viewBox="0 0 24 24"><use href="#ic-lock"/></svg>Target Domains / URLs</label>
         <div style="display:flex;gap:4px;align-items:center;">
-          <input type="password" class="input-field" id="allowedDomainsInput" placeholder="Add multiple URLs (e.g. ibnbfc.in, mybank.com, localhost)" style="margin-bottom:0;" />
-          <button class="icon-btn" id="toggleDomainVisibilityBtn" title="Show/Hide Saved URLs" style="width:30px;height:30px;flex-shrink:0;font-size:12px;">👁️</button>
+          <input type="password" class="input-field" id="allowedDomainsInput" placeholder="e.g. yourbank.com, portal.in, *" style="margin-bottom:0;" />
+          <button class="icon-btn" id="grabCurrentTabBtn" title="Grab Active Page Domain" style="width:30px;height:30px;flex-shrink:0;"><svg class="icon i13" viewBox="0 0 24 24"><use href="#ic-refresh"/></svg></button>
+          <button class="icon-btn" id="toggleDomainVisibilityBtn" title="Show/Hide Saved URLs" style="width:30px;height:30px;flex-shrink:0;"><svg class="icon i14" viewBox="0 0 24 24"><use href="#ic-eye"/></svg></button>
         </div>
-        <div style="font-size:9px;color:var(--muted);line-height:1.35;margin-top:4px;">Supports multiple URLs (comma-separated). Saved URLs are encrypted and masked as asterisks (*).</div>
       </div>
 
-      <div style="display:flex;gap:6px;margin-top:10px;">
-        <button class="btn" id="saveKeyBtn">Save Settings</button>
-        <button class="btn" id="clearKeyBtn" style="background:var(--card2);color:var(--text);border:1px solid var(--border);">Clear</button>
+      <!-- AI Configuration Section -->
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <label class="field-label" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="display:flex;align-items:center;gap:4px;"><svg class="icon i11" viewBox="0 0 24 24"><use href="#ic-sparkles"/></svg>AI Verification Engine</span>
+        </label>
+        <select class="input-field" id="providerSelect" style="cursor:pointer;margin-bottom:6px;font-size:10px;">
+          <option value="gemini">Google Gemini (Ultra-Fast Free Tier)</option>
+          <option value="local">Local Indian NLP Engine (Zero API Key)</option>
+          <option value="enhanced">Needle 3 Hybrid Engine (Offline)</option>
+          <option value="disabled">Disabled (Turn OFF AI Verification)</option>
+        </select>
+        <div id="apiKeyRow" style="margin-top:2px;">
+          <input type="password" class="input-field" id="apiKeyInput" placeholder="Enter Gemini API Key (AIza...)" style="margin-bottom:2px;font-size:10px;" />
+          <div style="font-size:8px;color:var(--muted);line-height:1.25;">Stored securely and encrypted in browser storage.</div>
+        </div>
+      </div>
+
+      <!-- Needle 3 Engine Settings Section -->
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <div class="field-label" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="display:flex;align-items:center;gap:4px;"><svg class="icon i11" viewBox="0 0 24 24"><use href="#ic-shield"/></svg>Verification Engine</span>
+          <span id="needleStatusBadge" class="pan-badge none" style="font-size:7.5px;padding:1px 5px;">Disabled</span>
+        </div>
+        
+        <div style="margin-top:5px;display:flex;flex-direction:column;gap:5px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);cursor:pointer;">
+            <input type="radio" name="engineMode" value="standard" id="engineModeStandard" checked />
+            <span style="font-weight:700;">Standard</span>
+            <span style="color:var(--muted);font-size:9.5px;">(Fast rule &amp; phonetic engine)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);cursor:pointer;">
+            <input type="radio" name="engineMode" value="enhanced" id="engineModeEnhanced" />
+            <span style="font-weight:700;">Enhanced</span>
+            <span style="color:var(--muted);font-size:9.5px;">(Standard + Needle 3 AI Hybrid)</span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+          <span style="font-size:10px;color:var(--text);font-weight:700;">Enable Needle 3 Engine</span>
+          <button class="toggle-pill off" id="needleToggle" type="button" style="padding:2px 8px;font-size:9px;">OFF</button>
+        </div>
+
+        <div id="needleBlockerNotice" style="font-size:8.5px;color:var(--muted);background:var(--card2);padding:6px 8px;border-radius:6px;border:1px solid var(--border);margin-top:6px;line-height:1.35;">
+          🔒 <strong>KYC Privacy Notice:</strong> Local on-device inference only. Zero external data transmission. Model weights (~28.4MB) reside locally.
+        </div>
+      </div>
+
+      <div style="display:flex;gap:5px;margin-top:10px;">
+        <button class="btn" id="saveKeyBtn" style="flex:1.2;">Save Settings</button>
+        <button class="btn" id="clearKeyBtn" style="flex:1;background:var(--card2);color:var(--text);border:1px solid var(--border);">Reset (*)</button>
+      </div>
+
+      <!-- Quick Link to Setup & Welcome Page -->
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);text-align:center;">
+        <button id="openWelcomeBtn" type="button" style="background:transparent;border:none;color:var(--accent);font-size:10.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
+          <span>Open Full Setup Page (AI &amp; URLs)</span>
+          <span>&rarr;</span>
+        </button>
       </div>
     </div>
   </div>
